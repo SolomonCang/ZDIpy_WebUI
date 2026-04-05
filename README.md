@@ -25,6 +25,19 @@ python app.py
 
 Open your browser at `http://localhost:7860`.
 
+### 2.1 One-click launcher (macOS)
+
+```bash
+chmod +x start_webui.command
+```
+
+Then double-click `start_webui.command` in Finder.
+
+The launcher will:
+- create `.venv` automatically (first run only)
+- install/update dependencies from `requirements.txt`
+- start the app and open your browser at `http://127.0.0.1:7860`
+
 ### 3. CLI mode (no WebUI)
 
 ```bash

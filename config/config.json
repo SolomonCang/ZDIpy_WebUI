@@ -1,5 +1,4 @@
 {
-  "_comment": "ZDIpy_WebUI configuration file. Edit parameters here or via the WebUI.",
   "star": {
     "_comment": "Stellar physical parameters",
     "inclination_deg": 45.0,
@@ -19,7 +18,7 @@
     "_target_form_help": "C = fit to target chi^2, E = fit to target entropy",
     "target_value": 1.0,
     "num_iterations": 20,
-    "test_aim": 1e-4
+    "test_aim": 0.0001
   },
   "magnetic": {
     "_comment": "Magnetic field mapping parameters",

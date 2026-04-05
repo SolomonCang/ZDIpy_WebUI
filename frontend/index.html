@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ZDIpy WebUI — Zeeman Doppler Imaging</title>
+  <link rel="stylesheet" href="/css/app.css" />
+  <!-- Plotly.js (scientific charts) -->
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+</head>
+<body>
+  <!-- ===== HEADER ===== -->
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="logo">
+        <span class="logo-icon">⭐</span>
+        <div>
+          <div class="logo-title">ZDIpy WebUI</div>
+          <div class="logo-sub">Zeeman Doppler Imaging</div>
+        </div>
+      </div>
+      <nav class="tab-nav" role="tablist" aria-label="Main navigation">
+        <button class="tab-btn active" data-tab="config"     role="tab" aria-selected="true">⚙️ Config</button>
+        <button class="tab-btn"        data-tab="observations" role="tab" aria-selected="false">📂 Observations</button>
+        <button class="tab-btn"        data-tab="run"         role="tab" aria-selected="false">▶️ Run</button>
+        <button class="tab-btn"        data-tab="results"     role="tab" aria-selected="false">📊 Results</button>
+      </nav>
+      <a class="docs-link" href="/docs" target="_blank" title="FastAPI Swagger docs">API docs ↗</a>
+    </div>
+  </header>
+
+  <!-- ===== MAIN ===== -->
+  <main class="app-main">
+
+    <!-- ── Tab: Config ──────────────────────────────────────────── -->
+    <section id="tab-config" class="tab-panel active" role="tabpanel">
+      <div class="panel-header">
+        <h2>Configuration</h2>
+        <div class="panel-actions">
+          <button id="cfg-load-btn"  class="btn btn-secondary">↻ Reload</button>
+          <button id="cfg-save-btn"  class="btn btn-primary">💾 Save</button>
+        </div>
+      </div>
+      <div id="cfg-status" class="status-bar" aria-live="polite"></div>
+      <!-- Accordion sections rendered by config.js -->
+      <div id="cfg-form" class="accordion-list"></div>
+    </section>
+
+    <!-- ── Tab: Observations ────────────────────────────────────── -->
+    <section id="tab-observations" class="tab-panel" role="tabpanel">
+      <div class="panel-header">
+        <h2>LSD Profiles</h2>
+        <button id="obs-refresh-btn" class="btn btn-secondary">↻ Refresh</button>
+      </div>
+      <div id="obs-status" class="status-bar" aria-live="polite"></div>
+
+      <!-- Upload area -->
+      <div class="card" id="obs-drop-zone">
+        <div class="drop-inner">
+          <span class="drop-icon">📁</span>
+          <p>Drag &amp; drop LSD profile files here, or <label class="link-label" for="obs-file-input">browse</label></p>
+          <input type="file" id="obs-file-input" multiple
+                 accept=".prof,.norm,.lsd,.txt,.dat" hidden />
+          <p class="hint">Accepted: <code>.prof  .norm  .lsd  .txt  .dat</code></p>
+        </div>
+      </div>
+
+      <!-- Existing files -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-title">Files in LSDprof/</div>
+        <table class="data-table" id="obs-file-table">
+          <thead><tr><th>Filename</th><th>Size</th><th>Link</th><th></th></tr></thead>
+          <tbody id="obs-file-tbody"></tbody>
+        </table>
+        <p class="hint" id="obs-no-files" style="display:none">No LSD profile files found. Upload some above.</p>
+      </div>
+
+      <!-- Observation list editor -->
+      <div class="card" style="margin-top:16px">
+        <div class="card-title">Observation entries (config.json)</div>
+        <div class="field-row" style="max-width:360px; margin-bottom:14px">
+          <label class="field-label" for="obs-jdate-ref">Reference Julian Date (jdate_ref)</label>
+          <input type="number" id="obs-jdate-ref" class="field-input" step="0.001" value="2456892.015" />
+        </div>
+
+        <datalist id="obs-file-datalist"></datalist>
+
+        <div class="obs-table-wrap">
+          <table class="data-table obs-entry-table">
+            <thead>
+              <tr>
+                <th style="width:2rem">#</th>
+                <th>Filename <span class="hint" style="text-transform:none;letter-spacing:0">(relative to project root)</span></th>
+                <th style="width:13rem">Julian Date</th>
+                <th style="width:11rem">RV center (km/s)</th>
+                <th style="width:6rem">File</th>
+                <th style="width:3rem"></th>
+              </tr>
+            </thead>
+            <tbody id="obs-entries-tbody"></tbody>
+          </table>
+          <p class="hint" id="obs-no-entries" style="display:none;padding:10px 0">
+            No observations configured. Click "+ Add" to add one.
+          </p>
+        </div>
+
+        <div style="margin-top:10px; display:flex; gap:8px; flex-wrap:wrap; align-items:center">
+          <button id="obs-add-btn"      class="btn btn-secondary">＋ Add observation</button>
+          <button id="obs-validate-btn" class="btn btn-secondary">🔍 Validate files</button>
+          <button id="obs-save-btn"     class="btn btn-primary">💾 Save to config</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- ── Tab: Run ─────────────────────────────────────────────── -->
+    <section id="tab-run" class="tab-panel" role="tabpanel">
+      <div class="panel-header">
+        <h2>Run ZDI Model</h2>
+        <div class="run-controls" style="display:flex; gap:12px; align-items:center">
+          <label class="checkbox-label">
+            <input type="checkbox" id="run-forward-only" />
+            Forward model only
+          </label>
+          <select id="run-verbose" class="field-select" style="width:auto">
+            <option value="0">Verbose: Off</option>
+            <option value="1" selected>Verbose: Normal</option>
+            <option value="2">Verbose: Debug</option>
+          </select>
+          <button id="run-btn" class="btn btn-run">▶ Run ZDI</button>
+          <span id="run-badge" class="badge badge-idle">Idle</span>
+        </div>
+      </div>
+      <div id="run-status-bar" class="status-bar" aria-live="polite"></div>
+      <div class="terminal-wrap">
+        <div class="terminal-header">
+          <span>Log output</span>
+          <button id="run-clear-btn" class="btn btn-ghost btn-sm">Clear</button>
+        </div>
+        <pre id="run-log" class="terminal" aria-live="polite" aria-label="Run log"></pre>
+      </div>
+    </section>
+
+    <!-- ── Tab: Results ─────────────────────────────────────────── -->
+    <section id="tab-results" class="tab-panel" role="tabpanel">
+      <div class="panel-header">
+        <h2>Results</h2>
+        <button id="results-refresh-btn" class="btn btn-primary">↻ Load results</button>
+      </div>
+      <div id="results-status" class="status-bar" aria-live="polite"></div>
+
+      <!-- Line profiles -->
+      <div class="card results-card">
+        <div class="card-title">Line Profile Fits — Stokes I &amp; V</div>
+        <div id="profiles-container" class="phase-grid"></div>
+        <p id="profiles-no-data" class="no-data-msg" style="display:none">
+          No profile data yet. Run the model first.
+        </p>
+      </div>
+
+      <!-- Magnetic map -->
+      <div class="card results-card">
+        <div class="card-title">Magnetic Field Map</div>
+        <div id="magnetic-chart" style="width:100%; min-height:360px"></div>
+        <p id="magnetic-no-data" class="no-data-msg" style="display:none">
+          No magnetic data yet. Run the model first.
+        </p>
+      </div>
+
+      <!-- Brightness map -->
+      <div class="card results-card">
+        <div class="card-title">Brightness Map</div>
+        <div id="brightness-chart" style="width:100%; min-height:320px"></div>
+        <p id="brightness-no-data" class="no-data-msg" style="display:none">
+          No brightness data yet. Run the model first.
+        </p>
+      </div>
+    </section>
+
+  </main><!-- /app-main -->
+
+  <!-- ===== FOOTER ===== -->
+  <footer class="app-footer">
+    <span>ZDIpy WebUI — Zeeman Doppler Imaging</span>
+    <span class="sep">•</span>
+    <a href="/docs" target="_blank">API docs</a>
+    <span class="sep">•</span>
+    <span>Based on ZDIpy (Folsom et al. 2018)</span>
+  </footer>
+
+  <!-- Application JS (order matters) -->
+  <script src="/js/app.js"></script>
+  <script src="/js/config.js"></script>
+  <script src="/js/observations.js"></script>
+  <script src="/js/run.js"></script>
+  <script src="/js/results.js"></script>
+</body>
+</html>
