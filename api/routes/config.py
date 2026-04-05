@@ -11,7 +11,7 @@ _ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-_DEFAULT_CONFIG = Path(_ROOT) / "config" / "config.json"
+_DEFAULT_CONFIG = Path(_ROOT) / "config.json"
 
 router = APIRouter(tags=["config"])
 
@@ -54,12 +54,8 @@ def put_config(body: Dict[str, Any]) -> Dict[str, Any]:
     # Attempt a lightweight ZDIConfig parse to catch value errors early
     try:
         import config_loader as cl
-        tmp_path = str(Path(_ROOT) / "config" / "_validate_tmp.json")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(body, f, indent=2, ensure_ascii=False)
-        # Only parse if observations.files is non-empty (otherwise calcCycles fails)
         if body.get("observations", {}).get("files"):
-            cl.ZDIConfig(tmp_path)
+            cl.ZDIConfig.from_dict(body, base_dir=str(Path(_ROOT)))
     except Exception as exc:
         raise HTTPException(status_code=422,
                             detail=f"Config validation error: {exc}")

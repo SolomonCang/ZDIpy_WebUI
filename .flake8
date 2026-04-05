@@ -1,0 +1,14 @@
+[flake8]
+max-line-length = 99
+exclude =
+    .venv,
+    __pycache__,
+    .git
+# W503/W504 line-break style — allow either convention
+# E127/E128/E129/E125 continuation-line visual-indent — legacy scientific alignment style
+# E402 module-level imports not at top — legacy scripts do sys.path inserts before imports
+extend-ignore = W503, W504, E125, E127, E128, E129, E402
+
+per-file-ignores =
+    # lineprofileVoigt uses legacy 5-space indentation throughout
+    core/lineprofileVoigt.py: E1

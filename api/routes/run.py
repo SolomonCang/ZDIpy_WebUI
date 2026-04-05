@@ -2,16 +2,31 @@
 
 import asyncio
 import json
+import logging
 import sys
 import threading
 import traceback
 from pathlib import Path
 from typing import AsyncGenerator
 
+
+class _StateLogHandler(logging.Handler):
+    """Append zdipy log records to the shared run state (SSE stream)."""
+    def emit(self, record: logging.LogRecord) -> None:
+        from api.state import append_log  # deferred to avoid circular import
+        append_log(self.format(record))
+
+
+_log_handler = _StateLogHandler()
+_log_handler.setFormatter(
+    logging.Formatter("%(levelname)s %(name)s: %(message)s"))
+logging.getLogger("zdipy").addHandler(_log_handler)
+
 from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from api.models import RunRequest, RunStatus
+from api.state import _state, _state_lock, append_log, extend_log, update_state  # noqa: F401
 
 _ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _ROOT not in sys.path:
@@ -19,73 +34,42 @@ if _ROOT not in sys.path:
 
 router = APIRouter(tags=["run"])
 
-# ---------------------------------------------------------------------------
-# Shared mutable run state (protected by _state_lock)
-# ---------------------------------------------------------------------------
-_state_lock = threading.Lock()
-_state: dict = {
-    "status": "idle",  # idle | running | done | error
-    "log_lines": [],
-    "result": None,
-    "error": None,
-}
-
 # Prevents concurrent ZDI runs.  Acquired in start_run(), released in _run_thread().
 _run_lock = threading.Lock()
-
-
-# ---------------------------------------------------------------------------
-# Stdout/stderr capture
-# ---------------------------------------------------------------------------
-class _StreamCapture:
-    """Redirect writes to both _state["log_lines"] and the original stream."""
-    def __init__(self, original):
-        self._original = original
-
-    def write(self, s: str) -> None:
-        if s.strip():
-            with _state_lock:
-                _state["log_lines"].append(s.rstrip())
-        self._original.write(s)
-
-    def flush(self) -> None:
-        self._original.flush()
+# Signals the running pipeline to stop at the next iteration boundary.
+_stop_event = threading.Event()
 
 
 # ---------------------------------------------------------------------------
 # Background run thread
 # ---------------------------------------------------------------------------
 def _run_thread(config_path: str, forward_only: bool, verbose: int) -> None:
-    old_stdout = sys.stdout
-    old_stderr = sys.stderr
-    sys.stdout = _StreamCapture(old_stdout)
-    sys.stderr = _StreamCapture(old_stderr)
+    def _callback(msg: str) -> None:
+        append_log(msg)
+
+    _stop_event.clear()
     try:
         from zdi_runner import run_zdi  # noqa: PLC0415
         result = run_zdi(
             config_path=config_path,
             forward_only=forward_only,
             verbose=verbose,
+            progress_callback=_callback,
+            stop_event=_stop_event,
         )
-        with _state_lock:
-            _state["status"] = "done"
-            _state["result"] = result
-            _state["log_lines"] += [
-                "",
-                "=" * 60,
-                "Run complete",
-                "=" * 60,
-                *[f"  {k:<25s}: {v}" for k, v in result.items()],
-            ]
+        update_state(status="done", result=result)
+        extend_log([
+            "",
+            "=" * 60,
+            "Run complete",
+            "=" * 60,
+            *[f"  {k:<25s}: {v}" for k, v in result.items()],
+        ])
     except Exception:
         tb = traceback.format_exc()
-        with _state_lock:
-            _state["status"] = "error"
-            _state["error"] = tb
-            _state["log_lines"].append(f"\n❌ Error:\n{tb}")
+        update_state(status="error", error=tb)
+        append_log(f"\n\u274c Error:\n{tb}")
     finally:
-        sys.stdout = old_stdout
-        sys.stderr = old_stderr
         _run_lock.release()
 
 
@@ -101,13 +85,8 @@ def start_run(req: RunRequest) -> dict:
             "message": "Another run is already in progress."
         }
 
-    config_path = req.config_path or str(
-        Path(_ROOT) / "config" / "config.json")
-    with _state_lock:
-        _state["status"] = "running"
-        _state["log_lines"] = []
-        _state["result"] = None
-        _state["error"] = None
+    config_path = req.config_path or str(Path(_ROOT) / "config.json")
+    update_state(status="running", log_lines=[], result=None, error=None)
 
     t = threading.Thread(
         target=_run_thread,
@@ -121,26 +100,28 @@ def start_run(req: RunRequest) -> dict:
 @router.get("/run/status", response_model=RunStatus)
 def get_status() -> RunStatus:
     """Return current run state and last 50 log lines."""
-    with _state_lock:
-        return RunStatus(
-            status=_state["status"],
-            log_tail=_state["log_lines"][-50:],
-            result=_state["result"],
-            error=_state["error"],
-        )
+    from api.state import get_state  # noqa: PLC0415
+    st = get_state()
+    return RunStatus(
+        status=st["status"],
+        log_tail=st["log_lines"][-50:],
+        result=st["result"],
+        error=st["error"],
+    )
 
 
 @router.get("/run/stream")
 async def stream_log() -> StreamingResponse:
     """Server-Sent Events endpoint: streams log lines in real time."""
     async def _generator() -> AsyncGenerator[str, None]:
+        from api.state import get_state  # noqa: PLC0415
         sent = 0
         while True:
-            with _state_lock:
-                lines = list(_state["log_lines"])
-                status = _state["status"]
-                result = _state["result"]
-                error = _state["error"]
+            st = get_state()
+            lines = st["log_lines"]
+            status = st["status"]
+            result = st["result"]
+            error = st["error"]
 
             # Emit any new lines
             for line in lines[sent:]:
@@ -165,3 +146,21 @@ async def stream_log() -> StreamingResponse:
             "X-Accel-Buffering": "no"
         },
     )
+
+
+@router.delete("/run")
+def stop_run() -> dict:
+    """Signal the running ZDI pipeline to stop gracefully at the next iteration."""
+    from api.state import get_state  # noqa: PLC0415
+    status = get_state()["status"]
+    if status != "running":
+        return {
+            "ok": False,
+            "message": f"No run in progress (status={status!r})"
+        }
+    _stop_event.set()
+    update_state(status="cancelled")
+    return {
+        "ok": True,
+        "message": "Stop signal sent. Pipeline will halt at next iteration."
+    }

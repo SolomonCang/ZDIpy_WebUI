@@ -48,6 +48,7 @@ function _startStream() {
       _isRunning = false;
       _setRunBtnState(false);
       _sse.close(); _sse = null;
+      window.loadAllResults?.();
     } else if (msg.type === 'error') {
       _setBadge('error', 'Error');
       setStatus(_el('run-status-bar'), '❌ Run failed — see log for details.', 'error');

@@ -1,8 +1,13 @@
 /**
  * results.js — Render ZDI results using Plotly.js.
  *
- * Endpoints consumed:
- *   GET /api/results/profiles    → phase data (Stokes I & V)
+ * Primary endpoints (return Plotly JSON directly):
+ *   GET /api/plots/profiles                    → ProfilePlotData JSON
+ *   GET /api/plots/surface_map?map_type=...    → SurfaceMapData JSON
+ *   GET /api/plots/light_curve                 → LightCurvePlotData JSON
+ *
+ * Legacy fallback endpoints (used when primary endpoints unavailable):
+ *   GET /api/results/profiles    → raw phase data
  *   GET /api/results/magnetic    → Br, Bclat, Blon on stellar surface
  *   GET /api/results/brightness  → brightness map
  */
@@ -19,14 +24,35 @@ function _darkLayout(overrides = {}) {
   };
 }
 
+// Merge a Plotly-JSON layout returned by the backend into the dark theme
+function _mergeLayout(backendLayout) {
+  return {
+    ...backendLayout,
+    paper_bgcolor: PLOTLY_BASE_LAYOUT.paper_bgcolor,
+    plot_bgcolor:  PLOTLY_BASE_LAYOUT.plot_bgcolor,
+    font: { ...PLOTLY_BASE_LAYOUT.font, ...(backendLayout.font || {}) },
+  };
+}
+
 // ---------------------------------------------------------------------------
-// Line profiles
+// Line profiles  (primary: /api/plots/profiles, fallback: /api/results/profiles)
 // ---------------------------------------------------------------------------
 async function loadProfiles() {
   const container = document.getElementById('profiles-container');
   const noData    = document.getElementById('profiles-no-data');
   if (!container) return;
 
+  // ── Try primary endpoint ──
+  try {
+    const plotJson = await apiFetch('/api/plots/profiles');
+    noData && (noData.style.display = 'none');
+    container.style.display = '';
+    container.innerHTML = '<div id="profiles-plot" style="width:100%; min-height:420px"></div>';
+    Plotly.newPlot('profiles-plot', plotJson.data, _mergeLayout(plotJson.layout), PLOTLY_CONFIG);
+    return;
+  } catch (_) { /* fall through to legacy */ }
+
+  // ── Legacy fallback ──
   let data;
   try {
     data = await apiFetch('/api/results/profiles');
@@ -42,8 +68,6 @@ async function loadProfiles() {
   }
   noData && (noData.style.display = 'none');
   container.style.display = 'grid';
-
-  // Clear previous charts
   container.innerHTML = '';
 
   const nCols = Math.min(4, data.phases.length);
@@ -58,7 +82,6 @@ async function loadProfiles() {
       <div id="pV-${i}" style="height:110px"></div>`;
     container.appendChild(card);
 
-    // ── Stokes I ──
     const tracesI = [];
     if (phase.stokes_I_obs) {
       tracesI.push({
@@ -79,13 +102,11 @@ async function loadProfiles() {
     }
     Plotly.newPlot(`pI-${i}`, tracesI, _darkLayout({
       margin: { t: 4, r: 6, b: 24, l: 44 },
-      showlegend: i === 0,
-      legend: { x: 0, y: 1, font: { size: 8 } },
+      showlegend: i === 0, legend: { x: 0, y: 1, font: { size: 8 } },
       xaxis: { title: { text: 'v (km/s)', font: { size: 9 } }, tickfont: { size: 8 } },
       yaxis: { title: { text: 'I/Ic',     font: { size: 9 } }, tickfont: { size: 8 } },
     }), PLOTLY_CONFIG);
 
-    // ── Stokes V ──
     const tracesV = [];
     if (phase.stokes_V_obs) {
       tracesV.push({
@@ -104,7 +125,6 @@ async function loadProfiles() {
         name: 'Model V', showlegend: false,
       });
     }
-    // Zero line
     if (phase.vel_obs?.length || phase.vel_mod?.length) {
       const xz = phase.vel_obs?.length ? phase.vel_obs : phase.vel_mod;
       tracesV.push({
@@ -116,19 +136,44 @@ async function loadProfiles() {
     Plotly.newPlot(`pV-${i}`, tracesV, _darkLayout({
       margin: { t: 4, r: 6, b: 28, l: 44 },
       xaxis: { title: { text: 'v (km/s)', font: { size: 9 } }, tickfont: { size: 8 } },
-      yaxis: { title: { text: 'V/Ic',     font: { size: 9 } }, tickfont: { size: 8 }, zeroline: true, zerolinecolor: '#30363d' },
+      yaxis: { title: { text: 'V/Ic', font: { size: 9 } }, tickfont: { size: 8 }, zeroline: true, zerolinecolor: '#30363d' },
     }), PLOTLY_CONFIG);
   });
 }
 
 // ---------------------------------------------------------------------------
-// Magnetic map
+// Magnetic map  (primary: /api/plots/surface_map?map_type=..., fallback: /api/results/magnetic)
 // ---------------------------------------------------------------------------
-async function loadMagnetic() {
+async function loadMagnetic(mapType = 'radial_B') {
   const chartEl = document.getElementById('magnetic-chart');
   const noData  = document.getElementById('magnetic-no-data');
   if (!chartEl) return;
 
+  // ── Try primary endpoint ──
+  try {
+    const plotJson = await apiFetch(`/api/plots/surface_map?map_type=${mapType}`);
+    noData && (noData.style.display = 'none');
+    chartEl.style.display = '';
+    Plotly.react(chartEl, plotJson.data, _mergeLayout({
+      ...plotJson.layout, height: 360,
+      margin: { t: 30, r: 20, b: 50, l: 55 },
+    }), PLOTLY_CONFIG);
+    return;
+  } catch (err) {
+    if (!err.message.includes('404')) {
+      // 503 = grid coords unavailable, 501 = not yet implemented — show hint
+      noData && (noData.style.display = '');
+      const hint = err.message.includes('503') ? 'Re-run the inversion to cache grid coordinates.' :
+                   err.message.includes('501') ? 'Magnetic map requires updated pipeline. Re-run.' :
+                   err.message;
+      noData && (noData.textContent = hint);
+      chartEl.style.display = 'none';
+      return;
+    }
+    /* 404 = no result yet — fall through to legacy */
+  }
+
+  // ── Legacy fallback ──
   let data;
   try {
     data = await apiFetch('/api/results/magnetic');
@@ -140,67 +185,58 @@ async function loadMagnetic() {
   if (!data.available) {
     chartEl.style.display = 'none';
     noData && (noData.style.display = '');
-    if (data.error) {
-      setStatus(document.getElementById('results-status'), `Magnetic map: ${data.error}`, 'warn');
-    }
+    if (data.error) setStatus(document.getElementById('results-status'), `Magnetic map: ${data.error}`, 'warn');
     return;
   }
   noData && (noData.style.display = 'none');
   chartEl.style.display = '';
 
-  const absMaxBr   = Math.max(...data.Br.map(Math.abs), 1);
-  const absMaxBcl  = Math.max(...data.Bclat.map(Math.abs), 1);
-  const absMaxBlon = Math.max(...data.Blon.map(Math.abs), 1);
+  const componentKey = mapType === 'radial_B' ? 'Br' : mapType === 'meridional_B' ? 'Bclat' : 'Blon';
+  const vals = data[componentKey] || data.Br || [];
+  const absMax = Math.max(...vals.map(Math.abs), 1);
 
-  const makeScatter = (y, z, absMax, label, domain) => ({
-    type: 'scatter',
-    mode: 'markers',
-    x: data.lon, y,
+  Plotly.react(chartEl, [{
+    type: 'scatter', mode: 'markers',
+    x: data.lon, y: data.lat,
     marker: {
-      color: z, colorscale: 'RdBu', reversescale: true,
+      color: vals, colorscale: 'RdBu', reversescale: true,
       cmin: -absMax, cmax: absMax, size: 3,
-      colorbar: { title: label, titlefont: { size: 10 }, tickfont: { size: 9 }, x: domain[1] - 0.01 },
+      colorbar: { title: mapType, titlefont: { size: 10 }, tickfont: { size: 9 } },
     },
-    xaxis: `x${domain[2]}`, yaxis: `y${domain[2]}`,
-    showlegend: false, name: label,
-    hovertemplate: `lon=%{x:.1f}°  lat=%{y:.1f}°  ${label}=%{marker.color:.1f} G<extra></extra>`,
-  });
-
-  const traces = [
-    makeScatter(data.lat, data.Br,    absMaxBr,   'Br (G)',    [0.00, 0.30, '']),
-    makeScatter(data.lat, data.Bclat, absMaxBcl,  'Bθ (G)',   [0.35, 0.65, 2]),
-    makeScatter(data.lat, data.Blon,  absMaxBlon, 'Bφ (G)',   [0.70, 1.00, 3]),
-  ];
-
-  const axisFragment = {
-    gridcolor: '#30363d', zerolinecolor: '#484f58', color: '#8b949e', tickfont: { size: 9 },
-  };
-
-  const layout = {
-    paper_bgcolor: '#21262d', plot_bgcolor: '#0d1117',
-    font: { family: "'JetBrains Mono', monospace", color: '#f0f6fc', size: 10 },
-    margin: { t: 30, r: 20, b: 50, l: 55 },
-    title: { text: 'Surface magnetic field  (Gauss)', font: { size: 12 }, y: 0.97 },
-    xaxis:  { ...axisFragment, domain: [0.00, 0.27], title: 'Longitude (°)' },
-    yaxis:  { ...axisFragment, title: 'Latitude (°)', anchor: 'x' },
-    xaxis2: { ...axisFragment, domain: [0.37, 0.63], title: 'Longitude (°)', anchor: 'y2' },
-    yaxis2: { ...axisFragment, title: 'Latitude (°)', anchor: 'x2' },
-    xaxis3: { ...axisFragment, domain: [0.73, 0.99], title: 'Longitude (°)', anchor: 'y3' },
-    yaxis3: { ...axisFragment, title: 'Latitude (°)', anchor: 'x3' },
-    height: 380,
-  };
-
-  Plotly.react(chartEl, traces, layout, PLOTLY_CONFIG);
+    showlegend: false, name: mapType,
+  }], _darkLayout({
+    margin: { t: 30, r: 20, b: 50, l: 55 }, height: 360,
+    xaxis: { title: 'Longitude (°)' }, yaxis: { title: 'Latitude (°)' },
+  }), PLOTLY_CONFIG);
 }
 
 // ---------------------------------------------------------------------------
-// Brightness map
+// Brightness map  (primary: /api/plots/surface_map?map_type=brightness, fallback: /api/results/brightness)
 // ---------------------------------------------------------------------------
 async function loadBrightness() {
   const chartEl = document.getElementById('brightness-chart');
   const noData  = document.getElementById('brightness-no-data');
   if (!chartEl) return;
 
+  // ── Try primary endpoint ──
+  try {
+    const plotJson = await apiFetch('/api/plots/surface_map?map_type=brightness');
+    noData && (noData.style.display = 'none');
+    chartEl.style.display = '';
+    Plotly.react(chartEl, plotJson.data, _mergeLayout({
+      ...plotJson.layout, height: 320,
+      margin: { t: 30, r: 20, b: 50, l: 55 },
+    }), PLOTLY_CONFIG);
+    return;
+  } catch (err) {
+    if (!err.message.includes('404')) {
+      noData && (noData.style.display = '');
+      chartEl.style.display = 'none';
+      return;
+    }
+  }
+
+  // ── Legacy fallback ──
   let data;
   try {
     data = await apiFetch('/api/results/brightness');
@@ -218,10 +254,8 @@ async function loadBrightness() {
   chartEl.style.display = '';
 
   const maxBright = Math.max(...data.brightness, 1.5);
-
-  const traces = [{
-    type: 'scatter',
-    mode: 'markers',
+  Plotly.react(chartEl, [{
+    type: 'scatter', mode: 'markers',
     x: data.lon, y: data.lat,
     marker: {
       color: data.brightness, colorscale: 'Hot', reversescale: true,
@@ -230,33 +264,61 @@ async function loadBrightness() {
     },
     showlegend: false,
     hovertemplate: 'lon=%{x:.1f}°  lat=%{y:.1f}°  bri=%{marker.color:.3f}<extra></extra>',
-  }];
-
-  const layout = _darkLayout({
-    title: { text: 'Relative brightness distribution', font: { size: 12 }, y: 0.97 },
-    margin: { t: 36, r: 20, b: 50, l: 55 },
-    height: 330,
-    xaxis: { title: 'Longitude (°)', tickfont: { size: 9 } },
-    yaxis: { title: 'Latitude (°)',  tickfont: { size: 9 } },
-  });
-
-  Plotly.react(chartEl, traces, layout, PLOTLY_CONFIG);
+  }], _darkLayout({
+    margin: { t: 30, r: 20, b: 50, l: 55 }, height: 320,
+    xaxis: { title: 'Longitude (°)' }, yaxis: { title: 'Latitude (°)' },
+  }), PLOTLY_CONFIG);
 }
 
 // ---------------------------------------------------------------------------
-// Refresh all
+// Light curve  (primary: /api/plots/light_curve; hidden when 404)
+// ---------------------------------------------------------------------------
+async function loadLightCurve() {
+  const card   = document.getElementById('lc-card');
+  const chartEl = document.getElementById('lc-chart');
+  if (!card || !chartEl) return;
+
+  try {
+    const plotJson = await apiFetch('/api/plots/light_curve');
+    card.style.display = '';
+    Plotly.react(chartEl, plotJson.data, _mergeLayout({
+      ...plotJson.layout, height: 260,
+      margin: { t: 30, r: 20, b: 50, l: 55 },
+    }), PLOTLY_CONFIG);
+  } catch (_) {
+    // 404 = no light curve data; silently hide the card
+    card.style.display = 'none';
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Load all results (called by "↻ Load results" button and after SSE 'result' event)
 // ---------------------------------------------------------------------------
 async function loadAllResults() {
   const statusEl = document.getElementById('results-status');
   setStatus(statusEl, 'Loading results…');
-  try {
-    await Promise.all([loadProfiles(), loadMagnetic(), loadBrightness()]);
-    setStatus(statusEl, '✔ Results loaded.', 'ok');
-    setTimeout(() => setStatus(statusEl, ''), 3000);
-  } catch (err) {
-    setStatus(statusEl, `Error: ${err.message}`, 'error');
-  }
+  await Promise.allSettled([
+    loadProfiles(),
+    loadBrightness(),
+    loadMagnetic('radial_B'),
+    loadLightCurve(),
+  ]);
+  setStatus(statusEl, '');
 }
+
+// Expose for external callers (e.g. run.js after SSE 'result' event)
+window.loadAllResults = loadAllResults;
+
+// ---------------------------------------------------------------------------
+// Magnetic sub-tab button handling
+// ---------------------------------------------------------------------------
+document.querySelectorAll('.mag-tab-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.mag-tab-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    loadMagnetic(btn.dataset.mag);
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Init

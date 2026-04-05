@@ -5,7 +5,7 @@ A modern, web-based Zeeman Doppler Imaging (ZDI) application combining:
 - **Physical models** from [ZDIpy](https://github.com/SolomonCang/ZDIpy) (Folsom et al. 2018) — stellar geometry, magnetic spherical harmonics, Voigt line profiles
 - **MEM optimization engine** from [pyZeeTom](https://github.com/SolomonCang/pyZeeTom) — Skilling & Bryan (1984) Maximum Entropy Method
 - **Standardized `config.json`** input format replacing legacy `.dat` files
-- **Gradio WebUI** for interactive parameter editing, model execution, and result visualization
+- **FastAPI + native JS WebUI** for interactive parameter editing, model execution, and result visualization
 
 ---
 
@@ -41,9 +41,9 @@ The launcher will:
 ### 3. CLI mode (no WebUI)
 
 ```bash
-python app.py --cli --config config/config.json
+python app.py --cli --config config.json
 # or
-python zdi_runner.py --config config/config.json
+python zdi_runner.py --config config.json
 ```
 
 ---
@@ -58,8 +58,7 @@ ZDIpy_WebUI/
 ├── model-voigt-line.dat     # Default spectral line model parameters
 ├── requirements.txt
 │
-├── config/
-│   └── config.json          # Standardized input configuration
+├── config.json              # Standardized input configuration
 │
 ├── core/                    # ZDI physics engine (from ZDIpy)
 │   ├── __init__.py
@@ -72,18 +71,21 @@ ZDIpy_WebUI/
 │   ├── memSaim3.py          # MEM entropy-fitting variant
 │   └── readObs.py           # LSD profile reader
 │
-├── webui/
-│   ├── __init__.py
-│   └── app.py               # Gradio WebUI application
+├── webui_legacy/            # ⚠️ Removed — see migration note below
+│   └── (deleted)
 │
 └── LSDprof/                 # Directory for observed LSD profiles
 ```
+
+> **Legacy WebUI removed**: The Gradio-based `webui_legacy/` directory was removed in favour of
+> the native JS + FastAPI frontend (`frontend/` + `api/`). The new WebUI supports offline
+> operation (Plotly served locally), task cancellation, and a structured logging pipeline.
 
 ---
 
 ## Configuration (`config.json`)
 
-The `config/config.json` file replaces the legacy `inzdi.dat` format with a
+The `config.json` file replaces the legacy `inzdi.dat` format with a
 structured, human-readable JSON schema:
 
 ```json
@@ -122,7 +124,7 @@ structured, human-readable JSON schema:
 }
 ```
 
-See [config/config.json](config/config.json) for the full schema with inline documentation.
+See [config.json](config.json) for the full schema with inline documentation.
 
 ---
 

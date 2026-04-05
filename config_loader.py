@@ -7,7 +7,6 @@ configuration.
 """
 
 import json
-import os
 from pathlib import Path
 import numpy as np
 
@@ -18,16 +17,35 @@ class ZDIConfig:
     """
     Unified ZDI configuration object loaded from config.json.
 
-    Mirrors the interface of core.mainFuncs.readParamsZDI so that the rest of
-    the ZDIpy pipeline works without modification.
+    Provides the same interface consumed by the ZDIpy pipeline so that
+    both the WebUI and the CLI can share the same configuration.
     """
-
     def __init__(self, config_path: str):
         self.config_path = str(config_path)
+        self._base = Path(config_path).parent.resolve()
         with open(config_path, "r", encoding="utf-8") as f:
             raw = json.load(f)
         self._raw = raw
         self._parse(raw)
+
+    @classmethod
+    def from_dict(cls, raw: dict, base_dir: str = ".") -> "ZDIConfig":
+        """Construct a ZDIConfig from a plain dict (no file I/O).
+
+        Parameters
+        ----------
+        raw : dict
+            Config dict with the same structure as config.json.
+        base_dir : str
+            Directory used to resolve relative paths inside the config.
+            Defaults to the current working directory.
+        """
+        obj = object.__new__(cls)
+        obj.config_path = "<in-memory>"
+        obj._base = Path(base_dir).resolve()
+        obj._raw = raw
+        obj._parse(raw)
+        return obj
 
     # ------------------------------------------------------------------
     # Parsing helpers
@@ -44,6 +62,10 @@ class ZDIConfig:
         vel = cfg["velocity_grid"]
         obs_block = cfg["observations"]
         out = cfg.get("output", {})
+
+        # Resolve any path relative to the config file's directory.
+        def _r(p: str) -> str:
+            return str((self._base / p).resolve())
 
         # --- Stellar parameters ------------------------------------------
         self.inclination = float(star["inclination_deg"])
@@ -71,15 +93,14 @@ class ZDIConfig:
         self.defaultBent = float(mag["default_bent"])
         self.magGeomType = str(mag["geometry_type"]).lower()
         self.initMagFromFile = int(mag["init_from_file"])
-        self.initMagGeomFile = str(mag["init_file"])
+        self.initMagGeomFile = _r(str(mag["init_file"]))
 
         # Validate magnetic geometry type
         valid_mag_types = ("full", "poloidal", "pottor", "potential")
         if self.magGeomType not in valid_mag_types:
             raise ValueError(
                 f"Invalid magnetic geometry type: {self.magGeomType!r}. "
-                f"Must be one of: {valid_mag_types}"
-            )
+                f"Must be one of: {valid_mag_types}")
 
         # --- Brightness ----------------------------------------------------
         self.fitBri = int(bri["fit_brightness"])
@@ -89,11 +110,12 @@ class ZDIConfig:
         self.defaultBright = float(bri["default_bright"])
         self.maximumBright = float(bri["max_bright"])
         self.initBrightFromFile = int(bri["init_from_file"])
-        self.initBrightFile = str(bri["init_file"])
+        self.initBrightFile = _r(str(bri["init_file"]))
 
         # --- Line model ----------------------------------------------------
         self.estimateStrenght = int(line["estimate_strength"])
-        self.model_file = str(line.get("model_file", "model-voigt-line.dat"))
+        self.model_file = _r(
+            str(line.get("model_file", "model-voigt-line.dat")))
 
         # --- Instrument ----------------------------------------------------
         self.instrumentRes = float(inst["spectral_resolution"])
@@ -106,7 +128,7 @@ class ZDIConfig:
         self.jDateRef = float(obs_block["jdate_ref"])
         obs_files = obs_block["files"]
 
-        self.fnames = np.array([o["filename"] for o in obs_files])
+        self.fnames = np.array([_r(o["filename"]) for o in obs_files])
         self.jDates = np.array([float(o["jdate"]) for o in obs_files])
         self.velRs = np.array([float(o["vel_center_kms"]) for o in obs_files])
         self.numObs = len(obs_files)
@@ -114,22 +136,30 @@ class ZDIConfig:
         # Sanity warnings for observations
         for i in range(self.numObs):
             if abs(self.jDateRef - self.jDates[i]) > 500.0:
-                print(
-                    f"Warning: possible date mismatch between jDateRef "
-                    f"({self.jDateRef}) and obs {i} ({self.jDates[i]})"
-                )
+                print(f"Warning: possible date mismatch between jDateRef "
+                      f"({self.jDateRef}) and obs {i} ({self.jDates[i]})")
             if abs(self.velRs[i]) > 500.0:
                 print(f"Warning: extreme Vr for obs {i}: {self.velRs[i]}")
 
-        # --- Output filenames ----------------------------------------------
-        self.outMagCoeffFile = str(out.get("mag_coeff_file", "outMagCoeff.dat"))
-        self.outBrightMapFile = str(out.get("bright_map_file", "outBrightMap.dat"))
-        self.outBrightMapGDarkFile = str(
-            out.get("bright_map_gdark_file", "outBrightMapGDark.dat")
-        )
-        self.outLineModelsFile = str(out.get("line_models_file", "outLineModels.dat"))
-        self.outObservedFile = str(out.get("observed_used_file", "outObserved.dat"))
-        self.outFitSummaryFile = str(out.get("fit_summary_file", "outFitSummary.txt"))
+        # --- Output filenames (resolved to absolute paths) ------------------
+        self.outMagCoeffFile = _r(
+            str(out.get("mag_coeff_file", "outMagCoeff.dat")))
+        self.outBrightMapFile = _r(
+            str(out.get("bright_map_file", "outBrightMap.dat")))
+        self.outBrightMapGDarkFile = _r(
+            str(out.get("bright_map_gdark_file", "outBrightMapGDark.dat")))
+        self.outLineModelsFile = _r(
+            str(out.get("line_models_file", "outLineModels.dat")))
+        self.outObservedFile = _r(
+            str(out.get("observed_used_file", "outObserved.dat")))
+        self.outFitSummaryFile = _r(
+            str(out.get("fit_summary_file", "outFitSummary.txt")))
+
+        # --- Light curve (optional) ----------------------------------------
+        lc_cfg = cfg.get("light_curve", {})
+        self.fitLightCurve: int = int(lc_cfg.get("fit_light_curve", 0))
+        self.chi2ScaleLc: float = float(lc_cfg.get("chi2_scale_lc", 1.0))
+        self.lcFiles: list[dict] = lc_cfg.get("files", [])
 
         # Derived / computed after parsing
         self.cycleList = None
@@ -148,10 +178,8 @@ class ZDIConfig:
         self.cycleList = (self.jDates - self.jDateRef) / self.period
         if self.dOmega != 0.0 and verbose == 1:
             lap = 2.0 * np.pi / self.dOmega
-            print(
-                f"Equator-pole lap time: {lap:.4f} days, "
-                f"or {lap/self.period:.4f} rotation cycles"
-            )
+            print(f"Equator-pole lap time: {lap:.4f} days, "
+                  f"or {lap/self.period:.4f} rotation cycles")
             span = np.max(self.jDates) - np.min(self.jDates)
             print(
                 f"Observations span: {span:.4f} days, "
@@ -193,8 +221,55 @@ class ZDIConfig:
 
         if self.fEntropyBright not in (1, 2):
             raise ValueError(
-                f"Unrecognized brightness entropy flag: {self.fEntropyBright}"
+                f"Unrecognized brightness entropy flag: {self.fEntropyBright}")
+
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
+
+    def validate(self) -> list[str]:
+        """Check configuration integrity and return a list of warning/error strings.
+
+        An empty list means the configuration is valid. Messages starting with
+        'ERROR:' indicate fatal problems; 'WARNING:' indicates non-fatal issues.
+        Callers should abort the run if any ERROR messages are present.
+        """
+        msgs: list[str] = []
+
+        # Observation file existence
+        for fname in self.fnames:
+            if not Path(fname).exists():
+                msgs.append(f"ERROR: observation file not found: {fname}")
+
+        # Magnetic initialisation file
+        if self.initMagFromFile == 1 and not Path(
+                self.initMagGeomFile).exists():
+            msgs.append(
+                f"ERROR: magnetic init file not found: {self.initMagGeomFile}")
+
+        # Brightness initialisation file
+        if self.initBrightFromFile == 1 and not Path(
+                self.initBrightFile).exists():
+            msgs.append(
+                f"ERROR: brightness init file not found: {self.initBrightFile}"
             )
+
+        # Light curve configuration
+        if self.fitLightCurve == 1 and not self.lcFiles:
+            msgs.append(
+                "WARNING: fit_light_curve=1 but light_curve.files is empty")
+
+        # Physical parameter sanity
+        if not (0.0 < self.inclination <= 90.0):
+            msgs.append(
+                f"WARNING: inclination_deg={self.inclination} outside recommended range (0, 90]"
+            )
+        if self.vsini <= 0.0:
+            msgs.append(f"ERROR: vsini_kms={self.vsini} must be positive")
+        if self.period <= 0.0:
+            msgs.append(f"ERROR: period_days={self.period} must be positive")
+
+        return msgs
 
     # ------------------------------------------------------------------
     # Serialization
@@ -211,7 +286,9 @@ class ZDIConfig:
             json.dump(self._raw, f, indent=2, ensure_ascii=False)
 
     @classmethod
-    def from_dict(cls, cfg: dict, config_path: str = "config.json") -> "ZDIConfig":
+    def from_dict(cls,
+                  cfg: dict,
+                  config_path: str = "config.json") -> "ZDIConfig":
         """Create a ZDIConfig from a plain dictionary (e.g. from the WebUI)."""
         # Write to a temp file, then load
         tmp_path = config_path
@@ -231,7 +308,9 @@ class ZDIConfig:
                 "mass_msun": 0.66,
                 "radius_rsun": 0.72,
             },
-            "grid": {"nRings": 30},
+            "grid": {
+                "nRings": 30
+            },
             "inversion": {
                 "target_form": "C",
                 "target_value": 1.0,
@@ -267,8 +346,13 @@ class ZDIConfig:
                 "limb_darkening": 0.66,
                 "gravity_darkening": 0.5,
             },
-            "instrument": {"spectral_resolution": 65000.0},
-            "velocity_grid": {"vel_start_kms": -80.0, "vel_end_kms": 80.0},
+            "instrument": {
+                "spectral_resolution": 65000.0
+            },
+            "velocity_grid": {
+                "vel_start_kms": -80.0,
+                "vel_end_kms": 80.0
+            },
             "observations": {
                 "jdate_ref": 2456892.015,
                 "files": [],

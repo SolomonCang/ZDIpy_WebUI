@@ -7,7 +7,7 @@ outBrightMapGDark.dat
 outLineModels.dat
 outObserved.dat
 outFitSummary.txt
-config/_run_config.json
+_run_config.json
 
 # LSD observation data (can be large, user-provided)
 LSDprof/*.prof

@@ -6,7 +6,7 @@ Run with:
     python app.py              # start FastAPI/uvicorn server on localhost:7860
     python app.py --share      # bind to 0.0.0.0 (network-accessible)
     python app.py --port 8080  # use custom port
-    python app.py --cli --config config/config.json  # CLI mode (no WebUI)
+    python app.py --cli --config config.json  # CLI mode (no WebUI)
 """
 
 import argparse
@@ -42,7 +42,7 @@ def main():
     )
     parser.add_argument(
         "--config",
-        default=os.path.join(_ROOT, "config", "config.json"),
+        default=os.path.join(_ROOT, "config.json"),
         help="Path to config.json (used in --cli mode)",
     )
     parser.add_argument(
@@ -60,6 +60,13 @@ def main():
     args = parser.parse_args()
 
     if args.cli:
+        # CLI mode: configure logging to console
+        import logging
+        logging.basicConfig(
+            level=logging.DEBUG if args.verbose >= 2 else logging.INFO,
+            format="%(asctime)s %(levelname)-8s %(name)s — %(message)s",
+            datefmt="%H:%M:%S",
+        )
         # CLI mode: run ZDI pipeline directly
         from zdi_runner import run_zdi
         result = run_zdi(

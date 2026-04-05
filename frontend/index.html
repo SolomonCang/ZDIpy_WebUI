@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ZDIpy WebUI — Zeeman Doppler Imaging</title>
   <link rel="stylesheet" href="/css/app.css" />
-  <!-- Plotly.js (scientific charts) -->
-  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+  <!-- Plotly.js (scientific charts, served locally for offline support) -->
+  <script src="/js/vendor/plotly.min.js"></script>
 </head>
 <body>
   <!-- ===== HEADER ===== -->
@@ -157,9 +157,16 @@
         </p>
       </div>
 
-      <!-- Magnetic map -->
+      <!-- Magnetic map（带分量子标签） -->
       <div class="card results-card">
-        <div class="card-title">Magnetic Field Map</div>
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+          Magnetic Field Map
+          <span style="display:flex;gap:6px">
+            <button class="btn btn-ghost btn-sm mag-tab-btn active" data-mag="radial_B">Br</button>
+            <button class="btn btn-ghost btn-sm mag-tab-btn" data-mag="meridional_B">Bθ</button>
+            <button class="btn btn-ghost btn-sm mag-tab-btn" data-mag="azimuthal_B">Bφ</button>
+          </span>
+        </div>
         <div id="magnetic-chart" style="width:100%; min-height:360px"></div>
         <p id="magnetic-no-data" class="no-data-msg" style="display:none">
           No magnetic data yet. Run the model first.
@@ -173,6 +180,12 @@
         <p id="brightness-no-data" class="no-data-msg" style="display:none">
           No brightness data yet. Run the model first.
         </p>
+      </div>
+
+      <!-- Light curve（仅当数据存在时显示） -->
+      <div class="card results-card" id="lc-card" style="display:none">
+        <div class="card-title">Light Curve</div>
+        <div id="lc-chart" style="width:100%; min-height:260px"></div>
       </div>
     </section>
 

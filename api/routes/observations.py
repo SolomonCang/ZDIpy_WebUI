@@ -32,8 +32,7 @@ def _validate_fname(raw: str) -> str:
     if ext not in _ALLOWED_EXTS:
         raise HTTPException(
             status_code=400,
-            detail=
-            f"Extension {ext!r} not allowed. Allowed: {sorted(_ALLOWED_EXTS)}",
+            detail=f"Extension {ext!r} not allowed. Allowed: {sorted(_ALLOWED_EXTS)}",
         )
     # Path traversal guard
     dest = (_LSD_DIR / basename).resolve()

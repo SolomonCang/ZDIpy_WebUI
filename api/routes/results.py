@@ -68,7 +68,30 @@ def _col(arr: np.ndarray, idx: int) -> Optional[List[float]]:
 # ---------------------------------------------------------------------------
 @router.get("/results/profiles")
 def get_profiles() -> Dict[str, Any]:
-    """Parse outObserved.dat + outLineModels.dat and return phase data for Plotly."""
+    """Return phase data for Plotly. Prefers in-memory ZDIResult; falls back to files."""
+    # --- Prefer: read from in-memory ZDIResult (set by the run route) --------
+    try:
+        from api.state import get_state  # noqa: PLC0415
+        result = get_state().get("result")
+        if result is not None and hasattr(result, "observed_profiles"):
+            phases = []
+            for obs, syn in zip(result.observed_profiles,
+                                result.synthetic_profiles):
+                phases.append({
+                    "vel_obs": obs["vel"],
+                    "vel_mod": syn["vel"],
+                    "stokes_I_obs": obs["I_obs"],
+                    "stokes_I_err": obs["I_sig"],
+                    "stokes_V_obs": obs["V_obs"],
+                    "stokes_V_err": obs["V_sig"],
+                    "stokes_I_mod": syn["I_mod"],
+                    "stokes_V_mod": syn["V_mod"],
+                })
+            return {"available": True, "phases": phases}
+    except Exception:
+        pass
+
+    # --- Fallback: parse output files ----------------------------------------
     obs_file = os.path.join(_ROOT, "outObserved.dat")
     mod_file = os.path.join(_ROOT, "outLineModels.dat")
 
@@ -111,15 +134,15 @@ def get_magnetic() -> Dict[str, Any]:
 
     try:
         # Load config for lMax and nRings
-        cfg_path = os.path.join(_ROOT, "config", "_run_config.json")
+        cfg_path = os.path.join(_ROOT, "_run_config.json")
         if not os.path.isfile(cfg_path):
-            cfg_path = os.path.join(_ROOT, "config", "config.json")
+            cfg_path = os.path.join(_ROOT, "config.json")
         with open(cfg_path) as f:
             cfg = json.load(f)
         l_max = int(cfg.get("magnetic", {}).get("l_max", 15))
         n_rings = int(cfg.get("grid", {}).get("nRings", 30))
 
-        import core.geometryStellar as gS  # noqa: PLC0415
+        import core.geometry as gS  # noqa: PLC0415
         import core.magneticGeom as mG  # noqa: PLC0415
 
         s_grid = gS.starGrid(n_rings, verbose=0)
