@@ -32,7 +32,8 @@ def _validate_fname(raw: str) -> str:
     if ext not in _ALLOWED_EXTS:
         raise HTTPException(
             status_code=400,
-            detail=f"Extension {ext!r} not allowed. Allowed: {sorted(_ALLOWED_EXTS)}",
+            detail=
+            f"Extension {ext!r} not allowed. Allowed: {sorted(_ALLOWED_EXTS)}",
         )
     # Path traversal guard
     dest = (_LSD_DIR / basename).resolve()
@@ -87,7 +88,8 @@ class PathStatus(BaseModel):
 
 
 @router.post("/observations/validate")
-def validate_observation_paths(body: ValidatePathsRequest) -> Dict[str, PathStatus]:
+def validate_observation_paths(
+        body: ValidatePathsRequest) -> Dict[str, PathStatus]:
     """Check which observation file paths exist and detect Stokes columns."""
     root = Path(_ROOT).resolve()
     results: Dict[str, PathStatus] = {}
