@@ -46,9 +46,70 @@ async function loadProfiles() {
   try {
     const plotJson = await apiFetch('/api/plots/profiles');
     noData && (noData.style.display = 'none');
-    container.style.display = '';
-    container.innerHTML = '<div id="profiles-plot" style="width:100%; min-height:420px"></div>';
-    Plotly.newPlot('profiles-plot', plotJson.data, _mergeLayout(plotJson.layout), PLOTLY_CONFIG);
+    container.innerHTML = '';
+
+    // Group traces by phase index (legendgroup = "phase0", "phase1", ...)
+    const phaseMap = {};
+    for (const trace of plotJson.data) {
+      const lg  = trace.legendgroup || 'phase0';
+      const idx = parseInt(lg.replace('phase', ''), 10);
+      if (!phaseMap[idx]) phaseMap[idx] = { I: [], V: [] };
+      (trace.yaxis === 'y2' ? phaseMap[idx].V : phaseMap[idx].I).push(trace);
+    }
+
+    const phaseList = Object.values(phaseMap);
+    if (!phaseList.length) {
+      container.style.display = 'none';
+      noData && (noData.style.display = '');
+      return;
+    }
+
+    const nCols = Math.min(4, phaseList.length);
+    container.style.display = 'grid';
+    container.style.gridTemplateColumns = `repeat(${nCols}, 1fr)`;
+
+    phaseList.forEach((ph, i) => {
+      const card = document.createElement('div');
+      card.className = 'phase-card';
+
+      // Extract phase label from first available trace name
+      const firstTrace = ph.I[0] || ph.V[0];
+      const phaseLabel = firstTrace?.name?.match(/φ=(.+)/)?.[1] ?? String(i + 1);
+
+      card.innerHTML = `
+        <div class="phase-title">φ = ${phaseLabel}</div>
+        <div id="ppI-${i}" style="height:140px"></div>
+        <div id="ppV-${i}" style="height:110px"></div>`;
+      container.appendChild(card);
+
+      // Stokes I mini-chart (traces already on default yaxis)
+      const iTraces = ph.I.map(t => ({ ...t, visible: true, showlegend: i === 0 }));
+      Plotly.newPlot(`ppI-${i}`, iTraces, _darkLayout({
+        margin: { t: 4, r: 6, b: 24, l: 44 },
+        showlegend: i === 0, legend: { x: 0, y: 1, font: { size: 8 } },
+        xaxis: { title: { text: 'v (km/s)', font: { size: 9 } }, tickfont: { size: 8 } },
+        yaxis: { title: { text: 'I/Ic',     font: { size: 9 } }, tickfont: { size: 8 } },
+      }), PLOTLY_CONFIG);
+
+      // Stokes V mini-chart (strip yaxis: "y2" so traces use default y)
+      const vTraces = ph.V.map(({ yaxis: _y, ...rest }) => ({ ...rest, visible: true, showlegend: false }));
+      if (vTraces.length) {
+        const xArr = vTraces[0].x || [];
+        if (xArr.length >= 2) {
+          vTraces.push({
+            x: [xArr[0], xArr[xArr.length - 1]], y: [0, 0],
+            mode: 'lines', line: { color: '#30363d', width: 0.8, dash: 'dash' },
+            showlegend: false, hoverinfo: 'skip',
+          });
+        }
+      }
+      Plotly.newPlot(`ppV-${i}`, vTraces, _darkLayout({
+        margin: { t: 4, r: 6, b: 28, l: 44 },
+        xaxis: { title: { text: 'v (km/s)', font: { size: 9 } }, tickfont: { size: 8 } },
+        yaxis: { title: { text: 'V/Ic',     font: { size: 9 } }, tickfont: { size: 8 },
+                 zeroline: true, zerolinecolor: '#30363d' },
+      }), PLOTLY_CONFIG);
+    });
     return;
   } catch (_) { /* fall through to legacy */ }
 
@@ -321,8 +382,47 @@ document.querySelectorAll('.mag-tab-btn').forEach(btn => {
 });
 
 // ---------------------------------------------------------------------------
+// Matplotlib polar magnetic map
+// ---------------------------------------------------------------------------
+async function loadMagneticPolar() {
+  const btn = document.getElementById('magnetic-mpl-btn');
+  const statusEl = document.getElementById('magnetic-mpl-status');
+  const container = document.getElementById('magnetic-mpl-img-container');
+  const img = document.getElementById('magnetic-mpl-img');
+  if (!btn) return;
+
+  btn.disabled = true;
+  statusEl.textContent = '生成中…';
+  statusEl.style.color = '#8b949e';
+
+  try {
+    const resp = await fetch('/api/plots/magnetic_polar');
+    if (!resp.ok) {
+      let detail = resp.statusText;
+      try { const j = await resp.json(); detail = j.detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    // Revoke previous object URL to avoid memory leak
+    if (img.src && img.src.startsWith('blob:')) {
+      URL.revokeObjectURL(img.src);
+    }
+    img.src = url;
+    container.style.display = '';
+    statusEl.textContent = '';
+  } catch (err) {
+    statusEl.textContent = `错误: ${err.message}`;
+    statusEl.style.color = '#f85149';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('results-refresh-btn')?.addEventListener('click', loadAllResults);
+  document.getElementById('magnetic-mpl-btn')?.addEventListener('click', loadMagneticPolar);
 });

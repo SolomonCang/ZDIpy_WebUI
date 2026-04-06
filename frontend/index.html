@@ -171,6 +171,14 @@
         <p id="magnetic-no-data" class="no-data-msg" style="display:none">
           No magnetic data yet. Run the model first.
         </p>
+        <!-- Matplotlib polar map section -->
+        <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
+          <button id="magnetic-mpl-btn" class="btn btn-ghost btn-sm">📷 Matplotlib 极坐标图</button>
+          <span id="magnetic-mpl-status" style="font-size:11px;color:#8b949e"></span>
+        </div>
+        <div id="magnetic-mpl-img-container" style="display:none;margin-top:8px">
+          <img id="magnetic-mpl-img" style="width:100%;border-radius:4px" alt="Matplotlib polar magnetic map" />
+        </div>
       </div>
 
       <!-- Brightness map -->

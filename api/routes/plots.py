@@ -4,12 +4,15 @@ Endpoints that return Plotly-ready JSON dicts for the frontend to render
 directly with ``Plotly.newPlot(div, resp.data, resp.layout)``.
 """
 
+import io
+import math
 import sys
 from pathlib import Path
 from typing import Any, Dict
 
 import numpy as np
 from fastapi import APIRouter, HTTPException, Query
+from fastapi.responses import Response
 
 _ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _ROOT not in sys.path:
@@ -117,7 +120,10 @@ def get_surface_map_plot(
         # Magnetic field components require recomputing from coefficients + grid
         try:
             import core.magneticGeom as mG  # noqa: PLC0415
-            mag_geom = mG.magSphHarmonics(len(_mag_coeffs.get("alpha", [])))
+            # nTot = nl*(nl+1)//2 + nl; invert to get nl from nTot
+            _nTot = len(_mag_coeffs.get("alpha", []))
+            _nl = int(round((-3.0 + math.sqrt(9.0 + 8.0 * _nTot)) / 2.0))
+            mag_geom = mG.magSphHarmonics(_nl)
             mag_geom.alpha = _to_complex(_mag_coeffs["alpha"])
             mag_geom.beta = _to_complex(_mag_coeffs["beta"])
             mag_geom.gamma = _to_complex(_mag_coeffs["gamma"])
@@ -177,3 +183,91 @@ def get_light_curve_plot() -> Dict[str, Any]:
         sigma=np.array(lc_obs.get("sigma", [])),
     )
     return PlotlyBackend().plot_light_curve(plot_data)
+
+
+# ---------------------------------------------------------------------------
+# GET /api/plots/magnetic_polar
+# ---------------------------------------------------------------------------
+@router.get("/plots/magnetic_polar")
+def get_magnetic_polar_plot():
+    """Render a 3-panel polar magnetic field map via Matplotlib and return PNG.
+
+    The image is also saved to ``results/magnetic_polar.png`` in the project
+    root so the user can retrieve it later.
+    """
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from core.plotting.matplotlib_backend import MatplotlibBackend  # noqa: PLC0415
+    from core.plotting.data import MagneticPolarData  # noqa: PLC0415
+    import core.magneticGeom as mG  # noqa: PLC0415
+
+    result = _get_result()
+
+    _mag_coeffs = result.get("mag_coeffs", {})
+    if not _mag_coeffs.get("alpha"):
+        raise HTTPException(
+            status_code=404,
+            detail=
+            "No magnetic coefficients in result. Run ZDI inversion first.",
+        )
+
+    def _to_complex(lst):
+        return np.array([r + 1j * i for r, i in lst], dtype=complex)
+
+    # ---- build dense grid (reference: 90 × 180) -------------------------
+    _EPS = 1e-6
+    npClat, npLon = 90, 180
+    lon_grid = np.linspace(0.0, 2.0 * np.pi, npLon, endpoint=False)
+    clat_grid = np.linspace(_EPS, np.pi - _EPS, npClat)
+    full_clat = np.repeat(clat_grid, npLon)
+    full_lon = np.tile(lon_grid, npClat)
+
+    # ---- reconstruct magnetic field on dense grid -----------------------
+    _nTot = len(_mag_coeffs["alpha"])
+    _nl = int(round((-3.0 + math.sqrt(9.0 + 8.0 * _nTot)) / 2.0))
+    try:
+        mag_geom = mG.magSphHarmonics(_nl)
+        mag_geom.alpha = _to_complex(_mag_coeffs["alpha"])
+        mag_geom.beta = _to_complex(_mag_coeffs["beta"])
+        mag_geom.gamma = _to_complex(_mag_coeffs["gamma"])
+        mag_geom.initMagGeom(full_clat, full_lon)
+        vec_b = mag_geom.getAllMagVectors()  # (3, npClat * npLon)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to compute magnetic field: {exc}",
+        ) from exc
+
+    Br = vec_b[0].reshape(npClat, npLon)
+    Blat = vec_b[1].reshape(npClat, npLon)
+    Blon = vec_b[2].reshape(npClat, npLon)
+
+    # ---- observed rotation phases (cycle % 1) ---------------------------
+    syn_profs = result.get("synthetic_profiles", [])
+    obs_phases = (np.array([p["phase"] % 1.0 for p in syn_profs])
+                  if syn_profs else np.array([]))
+
+    # ---- build data container and render --------------------------------
+    data = MagneticPolarData(
+        Br=Br,
+        Blon=Blon,
+        Blat=Blat,
+        lon_grid=lon_grid,
+        clat_grid=clat_grid,
+        obs_phases=obs_phases,
+    )
+    fig = MatplotlibBackend().plot_magnetic_polar(data)
+
+    # ---- save to results/ -----------------------------------------------
+    results_dir = Path(_ROOT) / "results"
+    results_dir.mkdir(exist_ok=True)
+    save_path = results_dir / "magnetic_polar.png"
+    fig.savefig(str(save_path), dpi=150, bbox_inches='tight')
+
+    # ---- return as PNG response -----------------------------------------
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    buf.seek(0)
+    return Response(content=buf.read(), media_type="image/png")

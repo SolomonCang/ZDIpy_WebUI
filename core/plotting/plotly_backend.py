@@ -14,14 +14,17 @@ class PlotlyBackend(PlotBackend):
     def plot_profiles(self, data: ProfilePlotData) -> dict:
         """Return a single Plotly figure containing all phases.
 
-        Each phase contributes an Obs trace and a Model trace.
-        All but the first phase are set to ``"legendonly"`` so the chart
-        is readable by default; click the legend to show/hide phases.
+        Each phase contributes Obs and Model traces for both Stokes I (top
+        panel) and Stokes V (bottom panel).  All but the first phase are set
+        to ``"legendonly"`` so the chart is readable by default; click the
+        legend to show/hide phases.  The two panels share the same x-axis.
         """
         traces = []
         vel = data.vel_grid.tolist()
         for i, phase in enumerate(data.phases):
             visible = True if i == 0 else "legendonly"
+
+            # ── Stokes I (top panel — yaxis) ─────────────────────────────
             obs_I_trace: dict = {
                 "x": vel,
                 "y": data.obs_I[i].tolist(),
@@ -34,7 +37,7 @@ class PlotlyBackend(PlotBackend):
                 "legendgroup": f"phase{i}",
                 "visible": visible,
             }
-            if data.obs_I_sigma:
+            if data.obs_I_sigma and len(data.obs_I_sigma[i]) > 0:
                 obs_I_trace["error_y"] = {
                     "type": "data",
                     "array": data.obs_I_sigma[i].tolist(),
@@ -56,6 +59,45 @@ class PlotlyBackend(PlotBackend):
                 "visible": visible,
             })
 
+            # ── Stokes V (bottom panel — yaxis2) ─────────────────────────
+            obs_V_trace: dict = {
+                "x": vel,
+                "y": data.obs_V[i].tolist(),
+                "mode": "markers",
+                "marker": {
+                    "size": 3,
+                    "color": "#8b949e"
+                },
+                "name": f"V obs  φ={phase:.3f}",
+                "legendgroup": f"phase{i}",
+                "visible": visible,
+                "yaxis": "y2",
+                "showlegend": False,
+            }
+            if data.obs_V_sigma and len(data.obs_V_sigma[i]) > 0:
+                obs_V_trace["error_y"] = {
+                    "type": "data",
+                    "array": data.obs_V_sigma[i].tolist(),
+                    "visible": True,
+                    "color": "#484f58",
+                    "thickness": 1,
+                }
+            traces.append(obs_V_trace)
+            traces.append({
+                "x": vel,
+                "y": data.mod_V[i].tolist(),
+                "mode": "lines",
+                "line": {
+                    "color": "#58a6ff",
+                    "width": 1.5
+                },
+                "name": f"V mod  φ={phase:.3f}",
+                "legendgroup": f"phase{i}",
+                "visible": visible,
+                "yaxis": "y2",
+                "showlegend": False,
+            })
+
         layout = {
             "xaxis": {
                 "title": {
@@ -65,7 +107,17 @@ class PlotlyBackend(PlotBackend):
             "yaxis": {
                 "title": {
                     "text": "I/Ic"
-                }
+                },
+                "domain": [0.45, 1.0],
+            },
+            "yaxis2": {
+                "title": {
+                    "text": "V/Ic"
+                },
+                "domain": [0.0, 0.40],
+                "anchor": "x",
+                "zeroline": True,
+                "zerolinecolor": "#30363d",
             },
             "template": "plotly_dark",
             "margin": {

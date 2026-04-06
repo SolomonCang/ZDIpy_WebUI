@@ -35,3 +35,19 @@ class LightCurvePlotData:
     obs_flux: np.ndarray  # (N_obs,)
     mod_flux: np.ndarray  # (N_obs,)
     sigma: np.ndarray  # (N_obs,)
+
+
+@dataclass
+class MagneticPolarData:
+    """Three-component polar-projection magnetic field map data.
+
+    The 2-D arrays (Br, Blon, Blat) are on a regular (npClat × npLon) grid
+    that spans latitudes from ~-30° to ~+90° using a polar-coordinate view.
+    """
+    Br: np.ndarray  # (npClat, npLon) radial component [G]
+    Blon: np.ndarray  # (npClat, npLon) azimuthal component [G]
+    Blat: np.ndarray  # (npClat, npLon) meridional component [G]
+    lon_grid: np.ndarray  # (npLon,) longitude [rad], 0..2π
+    clat_grid: np.ndarray  # (npClat,) colatitude [rad], eps..π-eps
+    obs_phases: np.ndarray  # (N_obs,) rotation phases in [0, 1)
+    discrete_levels: int = 10

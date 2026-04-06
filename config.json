@@ -12,8 +12,8 @@
   },
   "inversion": {
     "target_form": "C",
-    "target_value": 1,
-    "num_iterations": 20,
+    "target_value": 0.5,
+    "num_iterations": 5,
     "test_aim": 0.0001
   },
   "magnetic": {
@@ -25,7 +25,7 @@
     "init_file": "outMagCoeff.dat"
   },
   "brightness": {
-    "fit_brightness": 0,
+    "fit_brightness": 1,
     "chi2_scale_I": 1,
     "entropy_scale": 1,
     "entropy_form": 1,
