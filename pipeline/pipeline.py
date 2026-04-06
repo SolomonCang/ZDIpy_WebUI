@@ -61,8 +61,8 @@ class ZDIPipeline:
     # Main entry point
     # ------------------------------------------------------------------
 
-    def run(self) -> dict:
-        """Execute the full ZDI pipeline and return a result dict."""
+    def run(self) -> "ZDIResult":
+        """Execute the full ZDI pipeline and return a ZDIResult object."""
         import core.fitting as mf
         import core.readObs as readObs
         import core.geometry as geometryStellar
@@ -82,8 +82,17 @@ class ZDIPipeline:
             par.numIterations = 0
             self._log("Forward-only mode: numIterations set to 0")
 
-        # --- Load line model data -----------------------------------------
-        lineData = lineprofile.lineData(par.model_file, par.instrumentRes)
+        # --- Build line model data directly from config.json ---------------
+        lineData = lineprofile.lineData.from_parameters(
+            wavelength_nm=par.line_wavelength_nm,
+            line_strength=par.line_strength,
+            gauss_width_kms=par.line_gauss_width_kms,
+            lorentz_width_fraction=par.line_lorentz_width_fraction,
+            lande_g=par.line_lande_g,
+            limb_darkening=par.line_limb_darkening,
+            gravity_darkening=par.line_gravity_darkening,
+            instRes=par.instrumentRes,
+        )
 
         # --- Load observed spectra ----------------------------------------
         obsSet = readObs.obsProfSetInRange(par.fnames, par.velStart,
@@ -211,6 +220,13 @@ class ZDIPipeline:
             )
 
         # --- Save outputs ------------------------------------------------
+        import os as _os
+        for _f in [
+                par.outMagCoeffFile, par.outBrightMapFile,
+                par.outBrightMapGDarkFile, par.outLineModelsFile,
+                par.outObservedFile
+        ]:
+            _os.makedirs(_os.path.dirname(_f), exist_ok=True)
         magGeom.saveToFile(par.outMagCoeffFile, compatibility=True)
         brightnessGeom.saveMap(briMap, par.outBrightMapFile)
 

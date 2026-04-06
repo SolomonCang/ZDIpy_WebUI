@@ -55,7 +55,7 @@ def put_config(body: Dict[str, Any]) -> Dict[str, Any]:
     try:
         import config_loader as cl
         if body.get("observations", {}).get("files"):
-            cl.ZDIConfig.from_dict(body, base_dir=str(Path(_ROOT)))
+            cl.ZDIConfig.from_dict(body, config_path=str(_DEFAULT_CONFIG))
     except Exception as exc:
         raise HTTPException(status_code=422,
                             detail=f"Config validation error: {exc}")

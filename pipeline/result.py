@@ -50,10 +50,9 @@ class ZDIResult:
             "bright_map":
             self.bright_map.tolist(),
             "mag_coeffs": {
-                k:
-                (v.tolist() if isinstance(v, np.ndarray) else
-                 ([c.tolist() if isinstance(c, np.ndarray) else c
-                   for c in v] if isinstance(v, list) else v))
+                k: [[c.real, c.imag] if isinstance(c, complex) else
+                    (c.tolist() if isinstance(c, np.ndarray) else c)
+                    for c in (v.tolist() if isinstance(v, np.ndarray) else v)]
                 for k, v in self.mag_coeffs.items()
             },
             "synthetic_profiles":

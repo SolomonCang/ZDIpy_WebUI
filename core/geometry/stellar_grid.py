@@ -168,7 +168,7 @@ class starGrid:
                                        self.clat[i] - 0.5 * self.dClat[i],
                                        self.clat[i] + 0.5 * self.dClat[i],
                                        args=(self.fracOmegaCrit, ))
-                    area[i] = self.dLong[i] * intTheta
+                area[i] = self.dLong[i] * intTheta
         else:
             # 球形：精确解析面积
             area = self.dLong * (np.cos(self.clat - 0.5 * self.dClat) -

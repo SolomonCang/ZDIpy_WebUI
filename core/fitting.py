@@ -191,7 +191,7 @@ def mainFittingLoop(par,
                                               par.fitBri, par.fitMag)
 
             if par.fitBri == 1 or par.fitMag == 1:
-                entropy, _, _, _, _, _, _ = memSimple.get_s_grads(
+                entropy, _, _, _, _, _, _, _ = memSimple.get_s_grads(
                     coMem.n1Model, coMem.n2Model, coMem.nModelTot, Image,
                     weightEntropy, par.defaultBright, par.defaultBent,
                     par.maximumBright)

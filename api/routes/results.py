@@ -73,10 +73,11 @@ def get_profiles() -> Dict[str, Any]:
     try:
         from api.state import get_state  # noqa: PLC0415
         result = get_state().get("result")
-        if result is not None and hasattr(result, "observed_profiles"):
+        if result is not None and isinstance(
+                result, dict) and result.get("observed_profiles"):
             phases = []
-            for obs, syn in zip(result.observed_profiles,
-                                result.synthetic_profiles):
+            for obs, syn in zip(result["observed_profiles"],
+                                result["synthetic_profiles"]):
                 phases.append({
                     "vel_obs": obs["vel"],
                     "vel_mod": syn["vel"],
@@ -92,8 +93,8 @@ def get_profiles() -> Dict[str, Any]:
         pass
 
     # --- Fallback: parse output files ----------------------------------------
-    obs_file = os.path.join(_ROOT, "outObserved.dat")
-    mod_file = os.path.join(_ROOT, "outLineModels.dat")
+    obs_file = os.path.join(_ROOT, "results", "outObserved.dat")
+    mod_file = os.path.join(_ROOT, "results", "outLineModels.dat")
 
     if not os.path.isfile(obs_file) or not os.path.isfile(mod_file):
         return {"available": False, "phases": []}
@@ -128,7 +129,7 @@ def get_profiles() -> Dict[str, Any]:
 @router.get("/results/magnetic")
 def get_magnetic() -> Dict[str, Any]:
     """Reconstruct Br/Bclat/Blon surface maps from outMagCoeff.dat."""
-    mag_file = os.path.join(_ROOT, "outMagCoeff.dat")
+    mag_file = os.path.join(_ROOT, "results", "outMagCoeff.dat")
     if not os.path.isfile(mag_file):
         return {"available": False}
 
@@ -177,7 +178,7 @@ def get_magnetic() -> Dict[str, Any]:
 @router.get("/results/brightness")
 def get_brightness() -> Dict[str, Any]:
     """Parse outBrightMap.dat (columns: clat_rad, lon_rad, brightness)."""
-    bri_file = os.path.join(_ROOT, "outBrightMap.dat")
+    bri_file = os.path.join(_ROOT, "results", "outBrightMap.dat")
     data = _load_dat(bri_file)
     if data is None or data.shape[1] < 3:
         return {"available": False}

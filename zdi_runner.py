@@ -29,7 +29,7 @@ def run_zdi(config_path: str,
             forward_only: bool = False,
             verbose: int = 1,
             progress_callback=None,
-            stop_event=None) -> dict:
+            stop_event=None):
     """
     Run the ZDI forward model and/or inversion from a config.json file.
 
@@ -47,17 +47,12 @@ def run_zdi(config_path: str,
 
     Returns
     -------
-    dict
-        Result dictionary with keys:
-        - 'iterations': number of fitting iterations
-        - 'entropy': final entropy value
-        - 'chi2': final chi-squared per data point
-        - 'test': final Skilling-Bryan test statistic
-        - 'mean_bright': mean brightness
-        - 'mean_bright_diff': mean brightness deviation from default
-        - 'mean_mag': mean magnetic field strength (Gauss)
-        - 'converged': True if convergence criterion was met
-        - 'config_path': path to the config file used
+    ZDIResult
+        Result object.  Scalar summary fields are available directly
+        (``iterations``, ``entropy``, ``chi2``, ``test``, ``converged``).
+        Extended metadata (``mean_bright``, ``mean_mag``, …) lives in
+        ``result.metadata``.  Full maps and profiles are in
+        ``bright_map``, ``mag_coeffs``, ``synthetic_profiles``, etc.
     """
     import config_loader as cl
     from pipeline.pipeline import ZDIPipeline
@@ -83,7 +78,7 @@ def run_zdi(config_path: str,
         stop_event=stop_event,
     )
     result = pipeline.run()
-    result["config_path"] = config_path
+    result.metadata["config_path"] = config_path
     return result
 
 
@@ -120,8 +115,9 @@ def main():
                      forward_only=args.forward_only,
                      verbose=args.verbose)
     print("\nResult summary:")
-    for k, v in result.items():
-        print(f"  {k}: {v}")
+    summary = result.to_serializable()
+    for k in ("iterations", "entropy", "chi2", "test", "converged"):
+        print(f"  {k}: {summary[k]}")
 
 
 if __name__ == "__main__":

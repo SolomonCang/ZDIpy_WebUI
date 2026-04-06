@@ -57,13 +57,23 @@ def _run_thread(config_path: str, forward_only: bool, verbose: int) -> None:
             progress_callback=_callback,
             stop_event=_stop_event,
         )
-        update_state(status="done", result=result)
+        _summary = {
+            "iterations": result.iterations,
+            "entropy": f"{result.entropy:.5f}",
+            "chi2": f"{result.chi2:.6f}",
+            "test": f"{result.test:.6f}",
+            "converged": result.converged,
+            "mean_bright": result.metadata.get("mean_bright"),
+            "mean_bright_diff": result.metadata.get("mean_bright_diff"),
+            "mean_mag": f"{result.metadata.get('mean_mag', 0.0):.4f} G",
+        }
+        update_state(status="done", result=result.to_serializable())
         extend_log([
             "",
             "=" * 60,
             "Run complete",
             "=" * 60,
-            *[f"  {k:<25s}: {v}" for k, v in result.items()],
+            *[f"  {k:<25s}: {v}" for k, v in _summary.items()],
         ])
     except Exception:
         tb = traceback.format_exc()

@@ -55,7 +55,6 @@ ZDIpy_WebUI/
 ├── app.py                   # Main entry point (WebUI + CLI)
 ├── zdi_runner.py            # CLI runner accepting config.json
 ├── config_loader.py         # JSON config loader / ZDIConfig class
-├── model-voigt-line.dat     # Default spectral line model parameters
 ├── requirements.txt
 │
 ├── config.json              # Standardized input configuration
@@ -153,14 +152,28 @@ vel_kms  specI  sigI  specV  sigV  specN  sigN
 
 ## Output Files
 
+All output files are written to the `results/` subdirectory (created automatically).
+
 | File | Description |
 |------|-------------|
-| `outMagCoeff.dat` | Magnetic spherical harmonic coefficients |
-| `outBrightMap.dat` | Brightness map (colatitude, longitude, brightness) |
-| `outBrightMapGDark.dat` | Gravity-darkening-weighted brightness map |
-| `outLineModels.dat` | Synthetic line profiles for all phases |
-| `outObserved.dat` | Observed profiles used in fit |
-| `outFitSummary.txt` | Per-iteration fit summary |
+| `results/outMagCoeff.dat` | Magnetic spherical harmonic coefficients |
+| `results/outBrightMap.dat` | Brightness map (colatitude, longitude, brightness) |
+| `results/outBrightMapGDark.dat` | Gravity-darkening-weighted brightness map |
+| `results/outLineModels.dat` | Synthetic line profiles for all phases |
+| `results/outObserved.dat` | Observed profiles used in fit |
+| `results/outFitSummary.txt` | Per-iteration fit summary |
+
+Output paths can be customised via the `"output"` block in `config.json`.
+
+---
+
+## Gravity Darkening
+
+The `gravity_darkening` coefficient in `config.json → line_model` is used in the
+form $g^{\beta}$. Set it to `0.0` to disable gravity darkening entirely.
+For a fully radiative star use `1.0`; for convective stars consult
+Claret & Bloemen (2011, A&A 529, A75) for wavelength-dependent values derived
+from a wide range of model atmospheres.
 
 ---
 

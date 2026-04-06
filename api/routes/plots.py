@@ -45,7 +45,8 @@ def get_profiles_plot() -> Dict[str, Any]:
     obs_I_sigma, obs_V_sigma, phases = [], [], []
     vel_grid = np.array([])
 
-    for obs, syn in zip(result.observed_profiles, result.synthetic_profiles):
+    for obs, syn in zip(result["observed_profiles"],
+                        result["synthetic_profiles"]):
         phases.append(obs.get("phase", syn.get("phase", 0.0)))
         vel_grid = np.array(obs["vel"])
         obs_I.append(np.array(obs["I_obs"]))
@@ -92,8 +93,9 @@ def get_surface_map_plot(
 
     result = _get_result()
 
-    clat = np.array(result.metadata.get("clat", []))
-    lon = np.array(result.metadata.get("lon", []))
+    _meta = result.get("metadata", {})
+    clat = np.array(_meta.get("clat", []))
+    lon = np.array(_meta.get("lon", []))
     if clat.size == 0 or lon.size == 0:
         raise HTTPException(
             status_code=503,
@@ -102,20 +104,23 @@ def get_surface_map_plot(
             "Re-run the inversion with the updated pipeline.",
         )
 
+    _mag_coeffs = result.get("mag_coeffs", {})
+
+    def _to_complex(lst):
+        """Reconstruct complex array from [[real, imag], ...] pairs."""
+        return np.array([r + 1j * i for r, i in lst], dtype=complex)
+
     if map_type == "brightness":
-        values = result.bright_map
+        values = np.array(result["bright_map"])
         vmin, vmax = float(np.min(values)), float(np.max(values))
     else:
         # Magnetic field components require recomputing from coefficients + grid
         try:
             import core.magneticGeom as mG  # noqa: PLC0415
-            mag_geom = mG.magSphHarmonics(
-                len(result.mag_coeffs.get("alpha", [])))
-            mag_geom.alpha = np.array(result.mag_coeffs["alpha"],
-                                      dtype=complex)
-            mag_geom.beta = np.array(result.mag_coeffs["beta"], dtype=complex)
-            mag_geom.gamma = np.array(result.mag_coeffs["gamma"],
-                                      dtype=complex)
+            mag_geom = mG.magSphHarmonics(len(_mag_coeffs.get("alpha", [])))
+            mag_geom.alpha = _to_complex(_mag_coeffs["alpha"])
+            mag_geom.beta = _to_complex(_mag_coeffs["beta"])
+            mag_geom.gamma = _to_complex(_mag_coeffs["gamma"])
             mag_geom.initMagGeom(clat, lon)
             vec_b = mag_geom.getAllMagVectors()  # (3, N_cells)
             component_map = {
@@ -156,18 +161,19 @@ def get_light_curve_plot() -> Dict[str, Any]:
     from core.plotting.data import LightCurvePlotData  # noqa: PLC0415
 
     result = _get_result()
-    if result.light_curve_synthetic is None:
+    if result.get("light_curve_synthetic") is None:
         raise HTTPException(
             status_code=404,
             detail=
             "No light curve data in result (fit_light_curve=0 or not yet fitted).",
         )
 
-    lc_obs = result.metadata.get("lc_obs", {})
+    _meta = result.get("metadata", {})
+    lc_obs = _meta.get("lc_obs", {})
     plot_data = LightCurvePlotData(
         jdates=np.array(lc_obs.get("jdates", [])),
         obs_flux=np.array(lc_obs.get("flux", [])),
-        mod_flux=result.light_curve_synthetic,
+        mod_flux=np.array(result["light_curve_synthetic"]),
         sigma=np.array(lc_obs.get("sigma", [])),
     )
     return PlotlyBackend().plot_light_curve(plot_data)

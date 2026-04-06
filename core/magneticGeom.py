@@ -39,10 +39,14 @@ def _compute_legendre_batch(
     p = np.zeros((m_max + 1, n_max + 1, N))
     pd = np.zeros((m_max + 1, n_max + 1, N))
 
-    # Polynomial values: O(n_harmonics^2) vectorised lpmv calls
+    # Polynomial values: O(n_harmonics^2) vectorised lpmv calls.
+    # lpmv includes the Condon-Shortley phase (-1)^m, but the original
+    # scipy.special.lpmn (used in the reference code) did NOT.
+    # Multiply by (-1)^m to remove the CS phase and match lpmn's convention.
     for m_val in range(m_max + 1):
+        cs_phase = (-1.0)**m_val
         for n_val in range(m_val, n_max + 1):
-            p[m_val, n_val, :] = scipy.special.lpmv(m_val, n_val, x)
+            p[m_val, n_val, :] = scipy.special.lpmv(m_val, n_val, x) * cs_phase
 
     # Derivatives via recurrence (vectorised over N_cells):
     #   dP_n^m/dx = (n*x*P_n^m - (n+m)*P_{n-1}^m) / (x^2 - 1)

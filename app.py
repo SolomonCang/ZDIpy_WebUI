@@ -75,7 +75,17 @@ def main():
             verbose=args.verbose,
         )
         print("\nResult:")
-        for k, v in result.items():
+        _summary = {
+            "iterations": result.iterations,
+            "entropy": f"{result.entropy:.5f}",
+            "chi2": f"{result.chi2:.6f}",
+            "test": f"{result.test:.6f}",
+            "converged": result.converged,
+            "mean_bright": result.metadata.get("mean_bright"),
+            "mean_bright_diff": result.metadata.get("mean_bright_diff"),
+            "mean_mag": f"{result.metadata.get('mean_mag', 0.0):.4f} G",
+        }
+        for k, v in _summary.items():
             print(f"  {k}: {v}")
     else:
         # WebUI mode: launch FastAPI server via uvicorn

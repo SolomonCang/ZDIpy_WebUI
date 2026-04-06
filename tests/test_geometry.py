@@ -168,6 +168,15 @@ class TestFluxConservation:
         rel_var = np.std(proj_sum) / np.mean(proj_sum)
         assert rel_var < 5e-5, f"Flux varies across phases: rel_var={rel_var:.2e}"
 
+    def test_oblate_grid_area_nonzero_per_cell(self):
+        sg_oblate = starGrid(60,
+                             period=0.4232,
+                             mass=0.66,
+                             radiusEq=0.72,
+                             verbose=0)
+        assert np.all(sg_oblate.area > 0.0)
+        assert np.isclose(sg_oblate.area.sum(), 12.945489703083938, atol=1e-10)
+
 
 # ---------------------------------------------------------------------------
 # 4. N_phases=1 vs. N_phases=16 first row

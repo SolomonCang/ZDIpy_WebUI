@@ -29,7 +29,7 @@ _C_KMS = 2.99792458e5  # speed of light in km/s
 
 
 class lineData:
-    """从文件读取谱线参数（Donati LSD 输入格式）。
+    """谱线参数容器，支持从文件或直接参数构造。
 
     文件格式（每参数行，'#' 开头为注释）::
 
@@ -37,12 +37,27 @@ class lineData:
 
     Parameters
     ----------
-    inFileName : str
-        谱线参数文件路径。
+    inFileName : str, optional
+        谱线参数文件路径。与参数化输入二选一。
     instRes : float, optional
         仪器分辨率 R = λ/Δλ；< 0 表示不施加仪器展宽（默认 -1）。
+
+    Other Parameters
+    ----------------
+    wl0, lineStr, widthGauss, widthLorentz, landeG, limbDark, gravDark : float
+        单条谱线参数。若全部提供，则不读取文件，直接从参数构造。
     """
-    def __init__(self, inFileName: str, instRes: float = -1.0) -> None:
+    def __init__(self,
+                 inFileName: str | None = None,
+                 instRes: float = -1.0,
+                 *,
+                 wl0: float | None = None,
+                 lineStr: float | None = None,
+                 widthGauss: float | None = None,
+                 widthLorentz: float | None = None,
+                 landeG: float | None = None,
+                 limbDark: float | None = None,
+                 gravDark: float | None = None) -> None:
         self.wl0 = np.array([])
         self.str = np.array([])
         self.widthGauss = np.array([])
@@ -52,6 +67,33 @@ class lineData:
         self.gravDark = np.array([])
         self.numLines = 0
         self.instRes = instRes
+
+        use_param_input = all(v is not None
+                              for v in (wl0, lineStr, widthGauss, widthLorentz,
+                                        landeG, limbDark, gravDark))
+
+        if use_param_input:
+            assert wl0 is not None
+            assert lineStr is not None
+            assert widthGauss is not None
+            assert widthLorentz is not None
+            assert landeG is not None
+            assert limbDark is not None
+            assert gravDark is not None
+
+            self.numLines = 1
+            self.wl0 = np.array([float(wl0)])
+            self.str = np.array([float(lineStr)])
+            self.widthGauss = np.array([float(widthGauss)])
+            self.widthLorentz = np.array([float(widthLorentz)])
+            self.g = np.array([float(landeG)])
+            self.limbDark = np.array([float(limbDark)])
+            self.gravDark = np.array([float(gravDark)])
+            return
+
+        if inFileName is None:
+            raise ValueError(
+                "lineData requires either inFileName or full parameter input")
 
         with open(inFileName, 'r') as inFile:
             for line in inFile:
@@ -70,6 +112,29 @@ class lineData:
                     self.gravDark = np.append(self.gravDark, float(parts[6]))
                 except (ValueError, IndexError):
                     self.gravDark = np.append(self.gravDark, 0.0)
+
+    @classmethod
+    def from_parameters(cls,
+                        wavelength_nm: float,
+                        line_strength: float,
+                        gauss_width_kms: float,
+                        lorentz_width_fraction: float,
+                        lande_g: float,
+                        limb_darkening: float,
+                        gravity_darkening: float,
+                        instRes: float = -1.0) -> "lineData":
+        """使用 config.json 的 line_model 数值字段构造 lineData。"""
+        return cls(
+            inFileName=None,
+            instRes=instRes,
+            wl0=wavelength_nm,
+            lineStr=line_strength,
+            widthGauss=gauss_width_kms,
+            widthLorentz=lorentz_width_fraction,
+            landeG=lande_g,
+            limbDark=limb_darkening,
+            gravDark=gravity_darkening,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -185,6 +250,7 @@ class localProfileAndDeriv:
 
         # 盘积分并按连续谱归一化
         self.I = np.sum(self.I, axis=1) * invSumIc0  # noqa: E741
+        self.V = np.sum(self.V, axis=1) * invSumIc0
 
         if calcDV == 1:
             dIdWlGcont = self.dIdWlG * contin[np.newaxis, :]

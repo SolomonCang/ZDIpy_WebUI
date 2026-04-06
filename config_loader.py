@@ -114,6 +114,16 @@ class ZDIConfig:
 
         # --- Line model ----------------------------------------------------
         self.estimateStrenght = int(line["estimate_strength"])
+        self.line_wavelength_nm = float(line.get("wavelength_nm", 650.0))
+        self.line_strength = float(line.get("line_strength", 0.6306))
+        self.line_gauss_width_kms = float(line.get("gauss_width_kms", 2.41))
+        self.line_lorentz_width_fraction = float(
+            line.get("lorentz_width_fraction", 0.89))
+        self.line_lande_g = float(line.get("lande_g", 1.195))
+        self.line_limb_darkening = float(line.get("limb_darkening", 0.66))
+        self.line_gravity_darkening = float(line.get("gravity_darkening", 0.5))
+
+        # Deprecated compatibility field: retained for old configs.
         self.model_file = _r(
             str(line.get("model_file", "model-voigt-line.dat")))
 
@@ -143,17 +153,19 @@ class ZDIConfig:
 
         # --- Output filenames (resolved to absolute paths) ------------------
         self.outMagCoeffFile = _r(
-            str(out.get("mag_coeff_file", "outMagCoeff.dat")))
+            str(out.get("mag_coeff_file", "results/outMagCoeff.dat")))
         self.outBrightMapFile = _r(
-            str(out.get("bright_map_file", "outBrightMap.dat")))
+            str(out.get("bright_map_file", "results/outBrightMap.dat")))
         self.outBrightMapGDarkFile = _r(
-            str(out.get("bright_map_gdark_file", "outBrightMapGDark.dat")))
+            str(
+                out.get("bright_map_gdark_file",
+                        "results/outBrightMapGDark.dat")))
         self.outLineModelsFile = _r(
-            str(out.get("line_models_file", "outLineModels.dat")))
+            str(out.get("line_models_file", "results/outLineModels.dat")))
         self.outObservedFile = _r(
-            str(out.get("observed_used_file", "outObserved.dat")))
+            str(out.get("observed_used_file", "results/outObserved.dat")))
         self.outFitSummaryFile = _r(
-            str(out.get("fit_summary_file", "outFitSummary.txt")))
+            str(out.get("fit_summary_file", "results/outFitSummary.txt")))
 
         # --- Light curve (optional) ----------------------------------------
         lc_cfg = cfg.get("light_curve", {})
@@ -337,7 +349,6 @@ class ZDIConfig:
             },
             "line_model": {
                 "estimate_strength": 1,
-                "model_file": "model-voigt-line.dat",
                 "wavelength_nm": 650.0,
                 "line_strength": 0.6306,
                 "gauss_width_kms": 2.41,

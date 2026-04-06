@@ -192,7 +192,6 @@ code {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  overflow: hidden;
 }
 
 .accordion-header {
@@ -243,7 +242,56 @@ code {
   font-size: .8rem;
   font-weight: 500;
   color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
 }
+
+/* ── Parameter help icon & tooltip ─────────────────────── */
+.param-help {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  color: var(--bg-base);
+  font-size: .6rem;
+  font-weight: 700;
+  cursor: help;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.param-help::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 7px);
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-card-hover);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: .75rem;
+  font-weight: 400;
+  line-height: 1.45;
+  max-width: 240px;
+  min-width: 140px;
+  padding: 7px 10px;
+  white-space: normal;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .15s;
+  z-index: 300;
+  box-shadow: var(--shadow-md);
+}
+
+.param-help:hover::after { opacity: 1; }
+
 
 .field-input,
 .field-select,

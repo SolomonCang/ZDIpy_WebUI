@@ -32,8 +32,8 @@ def _ref_lpmn_single(m_max, n_max, x_scalar):
     for m_val in range(m_max + 1):
         n_arr = np.arange(m_val, n_max + 1, dtype=float)
         if len(n_arr) > 0:
-            p[m_val,
-              m_val:n_max + 1] = scipy.special.lpmv(m_val, n_arr, x_scalar)
+            p[m_val, m_val:n_max +
+              1] = scipy.special.lpmv(m_val, n_arr, x_scalar) * ((-1.0)**m_val)
     denom = x_scalar * x_scalar - 1.0
     if abs(denom) > 1e-14:
         for m_val in range(m_max + 1):
