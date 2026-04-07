@@ -70,9 +70,6 @@ ZDIpy_WebUI/
 │   ├── memSaim3.py          # MEM entropy-fitting variant
 │   └── readObs.py           # LSD profile reader
 │
-├── webui_legacy/            # ⚠️ Removed — see migration note below
-│   └── (deleted)
-│
 └── LSDprof/                 # Directory for observed LSD profiles
 ```
 

@@ -50,7 +50,6 @@ class MEMOptimizer:
     convergence_tol : float
         Bisection convergence tolerance for alpha and P.
     """
-
     def __init__(
         self,
         compute_entropy_callback: Callable,
@@ -269,7 +268,16 @@ def _diag_dir(
     MM = 2.0 * np.dot((tmpRe.T / sig2), tmpRe)
 
     gammaM, eiVec_M = linalg.eigh(MM)
-    edir = np.dot(edir, eiVec_M)
+    # Drop near-zero M eigenvalues to prevent 0/0 nan in _get_caim_quad.
+    maxGammaM = float(np.max(np.abs(gammaM))) if gammaM.size > 0 else 1.0
+    iokM = gammaM > 1e-8 * maxGammaM
+    # Always keep at least one direction (the largest eigenvalue) to avoid
+    # passing an empty gamma array to downstream functions.
+    if not np.any(iokM):
+        iokM[np.argmax(gammaM)] = True
+    edir = np.dot(edir, eiVec_M[:, iokM])
+    nedir = edir.shape[1]
+    gammaM = gammaM[iokM]
 
     return edir, nedir, gammaM
 

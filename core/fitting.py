@@ -93,6 +93,17 @@ def mainFittingLoop(par,
     chi_aim = par.chiTarget * float(coMem.nDataTotIV)
     target_aim = par.ent_aim if par.fixedEntropy == 1 else chi_aim
 
+    # UR 模型在 B=0 处 dV/dCoeff=0，响应矩阵退化，MEM 无法建立搜索方向。
+    # 若磁场系数全为零且使用 UR 模型，将 Image 各元素初始化为 defIpm(=defaultBent)
+    # 量级，确保磁场熵梯度 gradS 显著非零（Hobson-Lasenby 熵在 f∼defIpm 时梯度最大）。
+    if (par.fitMag == 1 and getattr(par, 'line_model_type', 'voigt') == 'unno'
+            and np.all(magGeom.alpha == 0) and np.all(magGeom.beta == 0)
+            and np.all(magGeom.gamma == 0)):
+        _binit = par.defaultBent  # 与 defIpm 同量级，保证 gradS ≠ 0
+        magGeom.alpha[:] = _binit * (1.0 + 1.0j)
+        magGeom.beta[:] = _binit * (1.0 + 1.0j)
+        magGeom.gamma[:] = _binit * (1.0 + 1.0j)
+
     with open('outFitSummary.txt', 'w') as fOutFitSummary:
 
         # 初始化收敛参数

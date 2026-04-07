@@ -16,6 +16,24 @@ LSDprof/*.lsd
 LSDprof/*.dat
 LSDprof/*.model
 
+# Keep bundled test observation profiles
+!LSDprof/lopeg_16aug14_v_02.prof.norm
+!LSDprof/lopeg_19aug14_v_01.prof.norm
+!LSDprof/lopeg_19aug14_v_05.prof.norm
+!LSDprof/lopeg_19aug14_v_10.prof.norm
+!LSDprof/lopeg_20aug14_v_01.prof.norm
+!LSDprof/lopeg_20aug14_v_05.prof.norm
+!LSDprof/lopeg_23aug14_v_01.prof.norm
+!LSDprof/lopeg_23aug14_v_07.prof.norm
+!LSDprof/lopeg_25aug14_v_01.prof.norm
+!LSDprof/lopeg_25aug14_v_05.prof.norm
+!LSDprof/lopeg_25aug14_v_10.prof.norm
+!LSDprof/lopeg_27aug14_v_01.prof.norm
+!LSDprof/lopeg_27aug14_v_07.prof.norm
+!LSDprof/lopeg_31aug14_v_01.prof.norm
+!LSDprof/lopeg_31aug14_v_05.prof.norm
+!LSDprof/lopeg_31aug14_v_10.prof.norm
+
 # Python
 __pycache__/
 *.py[cod]

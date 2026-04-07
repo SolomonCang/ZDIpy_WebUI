@@ -174,7 +174,12 @@ class ZDIPipeline:
         constMem = memSimple.constantsMEM(par, briMap, magGeom, nDataTot)
         Data, sig2 = memSimple.packDataVector(obsSet, par.fitBri, par.fitMag)
 
-        if (par.calcDV == 1) and (par.calcDI != 1):
+        # For linear (Voigt) models R = dV/dCoeff is independent of B; computing
+        # it once is exact and efficient. For non-linear (UR) models R(B) changes
+        # with B at every iteration, so calcDV must remain 1 so the fitting loop
+        # recomputes R after each MEM step (Gauss-Newton linearization).
+        _model_is_linear = getattr(par, 'line_model_type', 'voigt') != 'unno'
+        if (par.calcDV == 1) and (par.calcDI != 1) and _model_is_linear:
             allModeldIdV = memSimple.packResponseMatrix(
                 setSynSpec, nDataTot, constMem.npBriMap, magGeom,
                 par.magGeomType, par.fitBri, par.fitMag)

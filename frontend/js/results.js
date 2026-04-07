@@ -76,7 +76,10 @@ async function loadProfiles() {
     // Shared per-phase layout: dual-axis (I on top, V on bottom)
     const phaseLayout = {
       margin: { t: 24, r: 6, b: 28, l: 50 },
-      showlegend: false,
+      legend: {
+        x: 0.02, y: 0.99, xanchor: 'left', yanchor: 'top',
+        bgcolor: 'rgba(0,0,0,0)', font: { size: 7 }, orientation: 'h',
+      },
       xaxis: {
         title: { text: 'v (km/s)', font: { size: 9 } },
         tickfont: { size: 8 },
@@ -111,8 +114,13 @@ async function loadProfiles() {
         <div id="pp-${i}" style="height:260px"></div>`;
       container.appendChild(card);
 
-      // Force all traces visible for per-phase card
-      const phTraces = traces.map(t => ({ ...t, visible: true, showlegend: false }));
+      // Force all traces visible; show legend only for I-axis traces (not V)
+      const phTraces = traces.map(t => ({
+        ...t,
+        visible: true,
+        showlegend: t.yaxis !== 'y2',
+        name: t.name ? t.name.replace(/\s*\u03c6=.*$/, '').trim() : t.name,
+      }));
 
       Plotly.newPlot(`pp-${i}`, phTraces, _darkLayout(phaseLayout), PLOTLY_CONFIG);
     });
@@ -175,6 +183,15 @@ async function loadProfiles() {
     }), PLOTLY_CONFIG);
 
     const tracesV = [];
+    // Zero reference drawn FIRST so V_obs and V_mod render on top of it
+    if (phase.vel_obs?.length || phase.vel_mod?.length) {
+      const xz = phase.vel_obs?.length ? phase.vel_obs : phase.vel_mod;
+      tracesV.push({
+        x: [xz[0], xz[xz.length - 1]], y: [0, 0],
+        mode: 'lines', line: { color: '#30363d', width: 0.8, dash: 'dash' },
+        showlegend: false, hoverinfo: 'skip',
+      });
+    }
     if (phase.stokes_V_obs) {
       tracesV.push({
         x: phase.vel_obs, y: phase.stokes_V_obs,
@@ -190,14 +207,6 @@ async function loadProfiles() {
         x: phase.vel_mod, y: phase.stokes_V_mod,
         mode: 'lines', line: { color: '#58a6ff', width: 1.5 },
         name: 'Model V', showlegend: false,
-      });
-    }
-    if (phase.vel_obs?.length || phase.vel_mod?.length) {
-      const xz = phase.vel_obs?.length ? phase.vel_obs : phase.vel_mod;
-      tracesV.push({
-        x: [xz[0], xz[xz.length - 1]], y: [0, 0],
-        mode: 'lines', line: { color: '#30363d', width: 0.8, dash: 'dash' },
-        showlegend: false, hoverinfo: 'skip',
       });
     }
     Plotly.newPlot(`pV-${i}`, tracesV, _darkLayout({
