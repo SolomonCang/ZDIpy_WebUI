@@ -271,3 +271,92 @@ def get_magnetic_polar_plot():
     plt.close(fig)
     buf.seek(0)
     return Response(content=buf.read(), media_type="image/png")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/plots/brightness_polar
+# ---------------------------------------------------------------------------
+@router.get("/plots/brightness_polar")
+def get_brightness_polar_plot():
+    """Render a polar projection brightness map via Matplotlib and return PNG.
+
+    The image is also saved to ``results/brightness_polar.png``.
+    """
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from core.plotting.matplotlib_backend import MatplotlibBackend  # noqa: PLC0415
+    from core.plotting.data import BrightnessPolarData  # noqa: PLC0415
+
+    result = _get_result()
+
+    bright_map = result.get("bright_map")
+    if bright_map is None:
+        raise HTTPException(
+            status_code=404,
+            detail="No brightness map in result. Run ZDI inversion first.",
+        )
+
+    # ---- build dense grid (90 × 180) ------------------------------------
+    _EPS = 1e-6
+    npClat, npLon = 90, 180
+    lon_grid = np.linspace(0.0, 2.0 * np.pi, npLon, endpoint=False)
+    clat_grid = np.linspace(_EPS, np.pi - _EPS, npClat)
+
+    # ---- interpolate / reshape bright_map onto dense grid ----------------
+    # The bright_map is stored on the stellar grid (nRings*2 cells).
+    # Retrieve the original clat/lon from result metadata to interpolate.
+    _meta = result.get("metadata", {})
+    orig_clat = np.array(_meta.get("clat", []))
+    orig_lon = np.array(_meta.get("lon", []))
+    orig_bri = np.array(bright_map)
+
+    if orig_clat.size == 0 or orig_lon.size == 0:
+        raise HTTPException(
+            status_code=503,
+            detail="Grid coordinates (clat/lon) not in result metadata. "
+            "Re-run the inversion with the updated pipeline.",
+        )
+
+    # Nearest-neighbour interpolation onto dense grid
+    from scipy.interpolate import griddata  # noqa: PLC0415
+    orig_lat = np.pi / 2.0 - orig_clat
+    orig_lon_plot = orig_lon
+
+    full_clat = np.repeat(clat_grid, npLon)
+    full_lon = np.tile(lon_grid, npClat)
+    dense_lat = np.pi / 2.0 - full_clat
+    dense_bri = griddata(
+        np.column_stack([orig_lon_plot, orig_lat]),
+        orig_bri,
+        np.column_stack([full_lon, dense_lat]),
+        method='nearest',
+    )
+    brightness_2d = dense_bri.reshape(npClat, npLon)
+
+    # ---- observed rotation phases (cycle % 1) ---------------------------
+    syn_profs = result.get("synthetic_profiles", [])
+    obs_phases = (np.array([p["phase"] % 1.0 for p in syn_profs])
+                  if syn_profs else np.array([]))
+
+    # ---- render ---------------------------------------------------------
+    data = BrightnessPolarData(
+        brightness=brightness_2d,
+        lon_grid=lon_grid,
+        clat_grid=clat_grid,
+        obs_phases=obs_phases,
+    )
+    fig = MatplotlibBackend().plot_brightness_polar(data)
+
+    # ---- save to results/ -----------------------------------------------
+    results_dir = Path(_ROOT) / "results"
+    results_dir.mkdir(exist_ok=True)
+    save_path = results_dir / "brightness_polar.png"
+    fig.savefig(str(save_path), dpi=150, bbox_inches='tight')
+
+    # ---- return as PNG --------------------------------------------------
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=150, bbox_inches='tight')
+    plt.close(fig)
+    buf.seek(0)
+    return Response(content=buf.read(), media_type="image/png")

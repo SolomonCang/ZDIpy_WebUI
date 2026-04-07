@@ -405,6 +405,15 @@ def _plot_brightness_map(result: dict):
 
 
 # ---------------------------------------------------------------------------
+# Custom CSS
+# ---------------------------------------------------------------------------
+_CUSTOM_CSS = """
+/* ── Fix number-input spinner colour in dark mode ─── */
+input[type="number"] { color-scheme: dark; }
+"""
+
+
+# ---------------------------------------------------------------------------
 # Build the Gradio interface
 # ---------------------------------------------------------------------------
 def build_ui() -> gr.Blocks:
@@ -454,6 +463,10 @@ def build_ui() -> gr.Blocks:
         lande,
         limb,
         gdark,
+        model_type_v,
+        unno_beta_v,
+        unno_fI_v,
+        unno_fV_v,
         sres,
         vs,
         ve,
@@ -516,6 +529,10 @@ def build_ui() -> gr.Blocks:
                 "lande_g": float(lande),
                 "limb_darkening": float(limb),
                 "gravity_darkening": float(gdark),
+                "model_type": str(model_type_v),
+                "unno_beta": float(unno_beta_v),
+                "unno_filling_factor_I": float(unno_fI_v),
+                "unno_filling_factor_V": float(unno_fV_v),
             },
             "instrument": {
                 "spectral_resolution": float(sres)
@@ -538,7 +555,7 @@ def build_ui() -> gr.Blocks:
             },
         }
 
-    with gr.Blocks(title="ZDIpy WebUI") as demo:
+    with gr.Blocks(title="ZDIpy WebUI", css=_CUSTOM_CSS) as demo:
 
         gr.Markdown("""
 # ZDIpy WebUI — Zeeman Doppler Imaging
@@ -650,6 +667,15 @@ Configure parameters, upload observations, run forward/inversion models and visu
                                            label="Init brightness file")
 
             with gr.Accordion("📡 Instrument & Spectral Line", open=False):
+                model_type_dropdown = gr.Dropdown(
+                    choices=[
+                        ("Voigt  (weak-field approximation)", "voigt"),
+                        ("Unno-Rachkovsky  (Milne-Eddington, full polarised RT)",
+                         "unno"),
+                    ],
+                    value=_iv("line_model", "model_type", "voigt"),
+                    label="Line profile model",
+                )
                 spectral_res = gr.Number(value=_iv("instrument",
                                                    "spectral_resolution",
                                                    65000.0),
@@ -688,6 +714,22 @@ Configure parameters, upload observations, run forward/inversion models and visu
                 grav_dark = gr.Number(value=_iv("line_model",
                                                 "gravity_darkening", 0.5),
                                       label="Gravity darkening coefficient")
+                with gr.Group(visible=(_iv("line_model", "model_type", "voigt")
+                                       == "unno")) as unno_group:
+                    gr.Markdown("**Unno-Rachkovsky parameters**")
+                    unno_beta = gr.Number(
+                        value=_iv("line_model", "unno_beta", -1.0),
+                        label=
+                        "Source function slope β  (≤ 0 = auto from limb darkening)",
+                    )
+                    unno_fI = gr.Number(
+                        value=_iv("line_model", "unno_filling_factor_I", 1.0),
+                        label="Stokes I filling factor  f_I",
+                    )
+                    unno_fV = gr.Number(
+                        value=_iv("line_model", "unno_filling_factor_V", 1.0),
+                        label="Stokes V filling factor  f_V",
+                    )
 
             with gr.Accordion("📁 Output Files", open=False):
                 out_mag_coeff = gr.Textbox(value=_iv("output",
@@ -968,6 +1010,10 @@ of stellar magnetic fields and brightness distributions.
             lande_g,
             limb_dark,
             grav_dark,
+            model_type_dropdown,
+            unno_beta,
+            unno_fI,
+            unno_fV,
             spectral_res,
             vel_start,
             vel_end,
@@ -1031,6 +1077,10 @@ of stellar magnetic fields and brightness distributions.
                     c.get("line_model", {}).get("lande_g", 1.195),
                     c.get("line_model", {}).get("limb_darkening", 0.66),
                     c.get("line_model", {}).get("gravity_darkening", 0.5),
+                    c.get("line_model", {}).get("model_type", "voigt"),
+                    c.get("line_model", {}).get("unno_beta", -1.0),
+                    c.get("line_model", {}).get("unno_filling_factor_I", 1.0),
+                    c.get("line_model", {}).get("unno_filling_factor_V", 1.0),
                     c.get("instrument", {}).get("spectral_resolution",
                                                 65000.0),
                     c.get("velocity_grid", {}).get("vel_start_kms", -80.0),
@@ -1053,7 +1103,16 @@ of stellar magnetic fields and brightness distributions.
             except Exception:
                 return [gr.update() for _ in _all_cfg_inputs]
 
-        load_btn.click(fn=_load_from_disk, outputs=_all_cfg_inputs)
+        load_btn.click(fn=_load_from_disk, outputs=_all_cfg_inputs).then(
+            fn=lambda v: gr.update(visible=(v == "unno")),
+            inputs=[model_type_dropdown],
+            outputs=[unno_group],
+        )
+        model_type_dropdown.change(
+            fn=lambda v: gr.update(visible=(v == "unno")),
+            inputs=[model_type_dropdown],
+            outputs=[unno_group],
+        )
 
         # ── Save to disk ────────────────────────────────────────────────
         def _save_to_disk(*args):

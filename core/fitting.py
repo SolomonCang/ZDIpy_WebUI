@@ -38,7 +38,8 @@ def mainFittingLoop(par,
                     allModeldIdV,
                     weightEntropy: np.ndarray,
                     verbose: int = 1,
-                    stop_event: Optional[threading.Event] = None):
+                    stop_event: Optional[threading.Event] = None,
+                    callback=None):
     """MEM 迭代拟合循环。
 
     该函数在 Stokes I 亮度图和 Stokes V 磁场球谐系数上交替执行 MEM 更新，
@@ -107,7 +108,10 @@ def mainFittingLoop(par,
 
             if stop_event is not None and stop_event.is_set():
                 if verbose >= 1:
-                    print(f'Run cancelled after {iIter} iterations.')
+                    _msg = f'Run cancelled after {iIter} iterations.'
+                    print(_msg)
+                    if callback is not None:
+                        callback(_msg)
                 return iIter, entropy, chi2nu, test, meanBright, meanBrightDiff, meanMag
 
             iIter += 1
@@ -176,10 +180,15 @@ def mainFittingLoop(par,
                             meanBrightDiff, meanMag))
             if verbose == 1:
                 print(_summary)
+            if callback is not None:
+                callback(_summary)
             fOutFitSummary.write(_summary + '\n')
 
             if verbose == 1 and bConverged:
-                print('Success: sufficiently small value of Test achieved')
+                _conv_msg = 'Success: sufficiently small value of Test achieved'
+                print(_conv_msg)
+                if callback is not None:
+                    callback(_conv_msg)
 
         # 零迭代时仍计算模型诊断
         if iIter == 0:
@@ -215,6 +224,8 @@ def mainFittingLoop(par,
                             iIter, entropy, chi2nu, test, meanBright,
                             meanBrightDiff, meanMag))
             print(_summary)
+            if callback is not None:
+                callback(_summary)
             fOutFitSummary.write(_summary + '\n')
 
     return iIter, entropy, chi2nu, test, meanBright, meanBrightDiff, meanMag

@@ -4,7 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>ZDIpy WebUI — Zeeman Doppler Imaging</title>
-  <link rel="stylesheet" href="/css/app.css?v=3" />
+  <!-- Miro-inspired fonts: Inter (display) + Noto Sans (body) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/css/app.css?v=5" />
   <!-- Plotly.js (scientific charts, served locally for offline support) -->
   <script src="/js/vendor/plotly.min.js"></script>
 </head>
@@ -188,6 +192,14 @@
         <p id="brightness-no-data" class="no-data-msg" style="display:none">
           No brightness data yet. Run the model first.
         </p>
+        <!-- Matplotlib polar map section -->
+        <div style="margin-top:10px;display:flex;align-items:center;gap:8px">
+          <button id="brightness-mpl-btn" class="btn btn-ghost btn-sm">📷 Matplotlib 极坐标图</button>
+          <span id="brightness-mpl-status" style="font-size:11px;color:#8b949e"></span>
+        </div>
+        <div id="brightness-mpl-img-container" style="display:none;margin-top:8px">
+          <img id="brightness-mpl-img" style="width:60%;display:block;margin:0 auto;border-radius:4px" alt="Matplotlib polar brightness map" />
+        </div>
       </div>
 
       <!-- Light curve（仅当数据存在时显示） -->
@@ -210,7 +222,7 @@
 
   <!-- Application JS (order matters) -->
   <script src="/js/app.js?v=2"></script>
-  <script src="/js/config.js?v=2"></script>
+  <script src="/js/config.js?v=4"></script>
   <script src="/js/observations.js"></script>
   <script src="/js/run.js"></script>
   <script src="/js/results.js"></script>

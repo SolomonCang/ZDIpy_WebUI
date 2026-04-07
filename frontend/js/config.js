@@ -62,6 +62,15 @@ const CONFIG_SCHEMA = [
   {
     section: 'line_model', label: 'Spectral Line Model', icon: '📡', open: false,
     fields: [
+      // ── Model selector (spans full width) ──
+      { key: 'model_type', label: 'Line profile model', type: 'select', fullWidth: true,
+        options: [
+          { value: 'voigt', label: 'Voigt  (weak-field approximation)' },
+          { value: 'unno',  label: 'Unno-Rachkovsky  (Milne-Eddington, full polarised RT)' },
+        ],
+        tooltip: 'Spectral line model used for Stokes I/V synthesis. "Voigt" uses the weak-field approximation (fast, suitable for most ZDI). "Unno-Rachkovsky" solves the full polarised radiative transfer (slower, more accurate for very strong fields or large filling factors).',
+      },
+      // ── Common parameters ──
       { key: 'estimate_strength',       label: 'Auto-estimate line strength',         type: 'checkbox', tooltip: 'Automatically estimate the LSD line strength from the observed profiles instead of using the fixed value below.' },
       { key: 'wavelength_nm',           label: 'Wavelength  (nm)',                    type: 'number', step: 0.001,  tooltip: 'Central wavelength of the LSD line (nm). Used for computing the Zeeman splitting in Stokes V.' },
       { key: 'line_strength',           label: 'Line strength',                       type: 'number', step: 1e-4,   tooltip: 'LSD equivalent line strength (depth weight). Ignored when auto-estimate is enabled.' },
@@ -70,6 +79,18 @@ const CONFIG_SCHEMA = [
       { key: 'lande_g',                 label: 'Landé g factor',                      type: 'number', step: 0.001,  tooltip: 'Effective Landé g factor of the LSD line. Scales the magnetic splitting in the Stokes V profile.' },
       { key: 'limb_darkening',          label: 'Limb darkening coefficient',          type: 'number', min: 0, max: 1, step: 0.01, tooltip: 'Linear limb darkening coefficient ε (0–1). Higher values darken the stellar limb more strongly.' },
       { key: 'gravity_darkening',       label: 'Gravity darkening coefficient',       type: 'number', min: 0, max: 1, step: 0.01, tooltip: 'Gravity darkening exponent β (0–1). Applies von Zeipel gravity darkening to surface elements.' },
+      // ── Unno-Rachkovsky specific parameters ──
+      { key: '_unno_heading', type: 'subheader', label: 'Unno-Rachkovsky parameters',
+        visibleWhen: { key: 'model_type', value: 'unno' } },
+      { key: 'unno_beta',             label: 'Source function slope  β',       type: 'number', step: 0.01,
+        visibleWhen: { key: 'model_type', value: 'unno' },
+        tooltip: 'Slope of the Planck function with optical depth in the Milne-Eddington atmosphere: B(τ) = B₀(1 + β·τ). Set ≤ 0 to derive automatically from the limb darkening coefficient.' },
+      { key: 'unno_filling_factor_I', label: 'Stokes I filling factor  f_I', type: 'number', min: 0, max: 1, step: 0.01,
+        visibleWhen: { key: 'model_type', value: 'unno' },
+        tooltip: 'Fraction of each surface element covered by the magnetised atmosphere that contributes to Stokes I. The remainder contributes a field-free (quiet) Stokes I profile.' },
+      { key: 'unno_filling_factor_V', label: 'Stokes V filling factor  f_V', type: 'number', min: 0, step: 0.01,
+        visibleWhen: { key: 'model_type', value: 'unno' },
+        tooltip: 'Filling factor applied to the Stokes V profile. Values < 1 reduce the effective Zeeman splitting (mimicking unresolved mixed-polarity elements). Values > 1 are unusual but technically permitted.' },
     ],
   },
   {
@@ -106,6 +127,37 @@ const CONFIG_SCHEMA = [
 ];
 
 // ---------------------------------------------------------------------------
+// Conditional field visibility
+// ---------------------------------------------------------------------------
+
+/**
+ * Walk every element that carries [data-cond-field] / [data-cond-val] and
+ * show/hide it based on the current value of its controller element.
+ * Called after _buildForm and after _populate.
+ */
+function _applyAllConditionals() {
+  document.querySelectorAll('[data-cond-field][data-cond-val]').forEach(el => {
+    const ctrl = document.getElementById(el.dataset.condField);
+    const show = ctrl != null && String(ctrl.value) === el.dataset.condVal;
+    el.classList.toggle('field-row--hidden', !show);
+  });
+}
+
+/** Attach 'change' listeners to every controller so UI updates live. */
+function _setupConditionalListeners() {
+  const seen = new Set();
+  document.querySelectorAll('[data-cond-field]').forEach(el => {
+    const id = el.dataset.condField;
+    if (seen.has(id)) return;
+    seen.add(id);
+    const ctrl = document.getElementById(id);
+    if (!ctrl) return;
+    ctrl.addEventListener('change', _applyAllConditionals);
+    ctrl.addEventListener('input',  _applyAllConditionals);
+  });
+}
+
+// ---------------------------------------------------------------------------
 // DOM rendering
 // ---------------------------------------------------------------------------
 function _fieldId(section, key) { return `field-${section}-${key}`; }
@@ -118,11 +170,27 @@ function _helpIcon(tooltip) {
 
 function _renderField(section, f) {
   const id = _fieldId(section, f.key);
-  const wrapClass = 'field-row';
+
+  // Build conditional data attributes (appended to wrapper)
+  let condAttrs = '';
+  let condClass = '';
+  if (f.visibleWhen) {
+    const ctrlId = _fieldId(section, f.visibleWhen.key);
+    condAttrs = ` data-cond-field="${ctrlId}" data-cond-val="${f.visibleWhen.value}"`;
+    condClass = ' field-row--conditional field-row--hidden';
+  }
+  const fullWidthClass = f.fullWidth ? ' field-row--full' : '';
+
+  // Subheader / visual separator
+  if (f.type === 'subheader') {
+    return `<div class="field-subheader${condClass}${fullWidthClass}"${condAttrs}>${f.label}</div>`;
+  }
+
+  const wrapClass = `field-row${condClass}${fullWidthClass}`;
 
   if (f.type === 'checkbox') {
     return `
-      <div class="${wrapClass}">
+      <div class="${wrapClass}"${condAttrs}>
         <label class="checkbox-label" for="${id}">
           <input type="checkbox" id="${id}" />
           ${f.label}
@@ -138,7 +206,7 @@ function _renderField(section, f) {
       return `<option value="${val}">${lbl}</option>`;
     }).join('');
     return `
-      <div class="${wrapClass}">
+      <div class="${wrapClass}"${condAttrs}>
         <label class="field-label" for="${id}">${f.label}${_helpIcon(f.tooltip)}</label>
         <select id="${id}" class="field-select">${opts}</select>
       </div>`;
@@ -155,7 +223,7 @@ function _renderField(section, f) {
   ].filter(Boolean).join(' ');
 
   return `
-    <div class="${wrapClass}">
+    <div class="${wrapClass}"${condAttrs}>
       <label class="field-label" for="${id}">${f.label}${_helpIcon(f.tooltip)}</label>
       <input ${attrs} />
     </div>`;
@@ -179,6 +247,8 @@ function _buildForm() {
   }).join('');
 
   container.innerHTML = html;
+  _applyAllConditionals();       // set initial visibility before any load
+  _setupConditionalListeners();  // wire change events
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +269,8 @@ function _populate(cfg) {
       }
     }
   }
+  // Re-apply conditional visibility after values have been set
+  _applyAllConditionals();
 }
 
 function _collect() {
@@ -206,6 +278,8 @@ function _collect() {
   for (const sec of CONFIG_SCHEMA) {
     cfg[sec.section] = cfg[sec.section] || {};
     for (const f of sec.fields) {
+      // Skip pseudo-fields (subheaders have no input element)
+      if (f.type === 'subheader') continue;
       const el = document.getElementById(_fieldId(sec.section, f.key));
       if (!el) continue;
       if (f.type === 'checkbox') {

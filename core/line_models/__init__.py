@@ -6,6 +6,12 @@
 - ``VoigtLineModel``  : Humlicek Voigt 弱场模型 (core.line_models.voigt)
 - ``disk_integrate``  : 独立盘积分函数 (core.line_models.disk_integration)
 
+Unno-Rachkovsky 模型（可选）
+-----------------------------
+- ``lineDataUnno``             : UR 谱线参数容器（含 β、fI、fV）
+- ``diskIntProfAndDerivUnno``  : UR 盘积分轮廓及全部一阶导数
+- ``getAllProfDirivUnno``       : UR 批量初始化辅助（对应 getAllProfDiriv）
+
 向后兼容接口（pipeline 级别）
 ------------------------------
 - ``lineData``, ``localProfileAndDeriv``, ``diskIntProfAndDeriv``,
@@ -32,6 +38,14 @@ from core.line_models.line_utils import (  # noqa: F401
     limbDarkening, calcSynEW, fitLineStrength, equivWidComp2,
 )
 
+# ---------------------------------------------------------------------------
+# Unno-Rachkovsky 模型（Milne-Eddington 完整偏振辐射转移）
+# ---------------------------------------------------------------------------
+from core.line_models.unno import (  # noqa: F401
+    lineDataUnno, localProfileAndDerivUnno, diskIntProfAndDerivUnno,
+    getAllProfDirivUnno,
+)
+
 __all__ = [
     # 新架构
     "LineModel",
@@ -48,4 +62,9 @@ __all__ = [
     "calcSynEW",
     "fitLineStrength",
     "equivWidComp2",
+    # Unno-Rachkovsky
+    "lineDataUnno",
+    "localProfileAndDerivUnno",
+    "diskIntProfAndDerivUnno",
+    "getAllProfDirivUnno",
 ]

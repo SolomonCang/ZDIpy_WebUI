@@ -16,12 +16,17 @@
 // Shared Plotly layout helpers
 // ---------------------------------------------------------------------------
 function _darkLayout(overrides = {}) {
-  return {
+  const layout = {
     ...PLOTLY_BASE_LAYOUT,
     ...overrides,
     xaxis: { ...PLOTLY_BASE_LAYOUT.xaxis, ...(overrides.xaxis || {}) },
     yaxis: { ...PLOTLY_BASE_LAYOUT.yaxis, ...(overrides.yaxis || {}) },
   };
+  // Merge yaxis2 if present in overrides (PLOTLY_BASE_LAYOUT has no yaxis2)
+  if (overrides.yaxis2) {
+    layout.yaxis2 = { ...PLOTLY_BASE_LAYOUT.yaxis, ...overrides.yaxis2 };
+  }
+  return layout;
 }
 
 // Merge a Plotly-JSON layout returned by the backend into the dark theme
@@ -53,62 +58,63 @@ async function loadProfiles() {
     for (const trace of plotJson.data) {
       const lg  = trace.legendgroup || 'phase0';
       const idx = parseInt(lg.replace('phase', ''), 10);
-      if (!phaseMap[idx]) phaseMap[idx] = { I: [], V: [] };
-      (trace.yaxis === 'y2' ? phaseMap[idx].V : phaseMap[idx].I).push(trace);
+      if (!phaseMap[idx]) phaseMap[idx] = [];
+      phaseMap[idx].push(trace);
     }
 
-    const phaseList = Object.values(phaseMap);
-    if (!phaseList.length) {
+    const phaseKeys = Object.keys(phaseMap).map(Number).sort((a, b) => a - b);
+    if (!phaseKeys.length) {
       container.style.display = 'none';
       noData && (noData.style.display = '');
       return;
     }
 
-    const nCols = Math.min(4, phaseList.length);
+    const nCols = Math.min(4, phaseKeys.length);
     container.style.display = 'grid';
     container.style.gridTemplateColumns = `repeat(${nCols}, 1fr)`;
 
-    phaseList.forEach((ph, i) => {
+    // Shared per-phase layout: dual-axis (I on top, V on bottom)
+    const phaseLayout = {
+      margin: { t: 24, r: 6, b: 28, l: 50 },
+      showlegend: false,
+      xaxis: {
+        title: { text: 'v (km/s)', font: { size: 9 } },
+        tickfont: { size: 8 },
+      },
+      yaxis: {
+        title: { text: 'I/Ic', font: { size: 9 } },
+        tickfont: { size: 8 },
+        domain: [0.46, 1.0],
+      },
+      yaxis2: {
+        title: { text: 'V/Ic', font: { size: 9 } },
+        tickfont: { size: 8 },
+        domain: [0.0, 0.40],
+        anchor: 'x',
+        zeroline: true,
+        zerolinecolor: '#484f58',
+        zerolinewidth: 1,
+      },
+    };
+
+    phaseKeys.forEach((phIdx, i) => {
+      const traces = phaseMap[phIdx];
       const card = document.createElement('div');
       card.className = 'phase-card';
 
-      // Extract phase label from first available trace name
-      const firstTrace = ph.I[0] || ph.V[0];
-      const phaseLabel = firstTrace?.name?.match(/φ=(.+)/)?.[1] ?? String(i + 1);
+      // Extract phase label from the first I trace name (e.g. "I obs  φ=1.230")
+      const firstName = traces.find(t => !t.yaxis)?.name || traces[0]?.name || '';
+      const phaseLabel = firstName.match(/φ=(.+)/)?.[1] ?? String(i + 1);
 
       card.innerHTML = `
         <div class="phase-title">φ = ${phaseLabel}</div>
-        <div id="ppI-${i}" style="height:140px"></div>
-        <div id="ppV-${i}" style="height:110px"></div>`;
+        <div id="pp-${i}" style="height:260px"></div>`;
       container.appendChild(card);
 
-      // Stokes I mini-chart (traces already on default yaxis)
-      const iTraces = ph.I.map(t => ({ ...t, visible: true, showlegend: i === 0 }));
-      Plotly.newPlot(`ppI-${i}`, iTraces, _darkLayout({
-        margin: { t: 4, r: 6, b: 24, l: 44 },
-        showlegend: i === 0, legend: { x: 0, y: 1, font: { size: 8 } },
-        xaxis: { title: { text: 'v (km/s)', font: { size: 9 } }, tickfont: { size: 8 } },
-        yaxis: { title: { text: 'I/Ic',     font: { size: 9 } }, tickfont: { size: 8 } },
-      }), PLOTLY_CONFIG);
+      // Force all traces visible for per-phase card
+      const phTraces = traces.map(t => ({ ...t, visible: true, showlegend: false }));
 
-      // Stokes V mini-chart (strip yaxis: "y2" so traces use default y)
-      const vTraces = ph.V.map(({ yaxis: _y, ...rest }) => ({ ...rest, visible: true, showlegend: false }));
-      if (vTraces.length) {
-        const xArr = vTraces[0].x || [];
-        if (xArr.length >= 2) {
-          vTraces.push({
-            x: [xArr[0], xArr[xArr.length - 1]], y: [0, 0],
-            mode: 'lines', line: { color: '#30363d', width: 0.8, dash: 'dash' },
-            showlegend: false, hoverinfo: 'skip',
-          });
-        }
-      }
-      Plotly.newPlot(`ppV-${i}`, vTraces, _darkLayout({
-        margin: { t: 4, r: 6, b: 28, l: 44 },
-        xaxis: { title: { text: 'v (km/s)', font: { size: 9 } }, tickfont: { size: 8 } },
-        yaxis: { title: { text: 'V/Ic',     font: { size: 9 } }, tickfont: { size: 8 },
-                 zeroline: true, zerolinecolor: '#30363d' },
-      }), PLOTLY_CONFIG);
+      Plotly.newPlot(`pp-${i}`, phTraces, _darkLayout(phaseLayout), PLOTLY_CONFIG);
     });
     return;
   } catch (_) { /* fall through to legacy */ }
@@ -420,9 +426,47 @@ async function loadMagneticPolar() {
 }
 
 // ---------------------------------------------------------------------------
+// Matplotlib polar brightness map
+// ---------------------------------------------------------------------------
+async function loadBrightnessPolar() {
+  const btn = document.getElementById('brightness-mpl-btn');
+  const statusEl = document.getElementById('brightness-mpl-status');
+  const container = document.getElementById('brightness-mpl-img-container');
+  const img = document.getElementById('brightness-mpl-img');
+  if (!btn) return;
+
+  btn.disabled = true;
+  statusEl.textContent = '生成中…';
+  statusEl.style.color = '#8b949e';
+
+  try {
+    const resp = await fetch('/api/plots/brightness_polar');
+    if (!resp.ok) {
+      let detail = resp.statusText;
+      try { const j = await resp.json(); detail = j.detail || detail; } catch (_) {}
+      throw new Error(detail);
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    if (img.src && img.src.startsWith('blob:')) {
+      URL.revokeObjectURL(img.src);
+    }
+    img.src = url;
+    container.style.display = '';
+    statusEl.textContent = '';
+  } catch (err) {
+    statusEl.textContent = `错误: ${err.message}`;
+    statusEl.style.color = '#f85149';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('results-refresh-btn')?.addEventListener('click', loadAllResults);
   document.getElementById('magnetic-mpl-btn')?.addEventListener('click', loadMagneticPolar);
+  document.getElementById('brightness-mpl-btn')?.addEventListener('click', loadBrightnessPolar);
 });

@@ -10,6 +10,8 @@ import logging
 from typing import Callable, Optional
 import threading
 
+import numpy as np
+
 _pipeline_log = logging.getLogger("zdipy.pipeline")
 
 
@@ -83,16 +85,35 @@ class ZDIPipeline:
             self._log("Forward-only mode: numIterations set to 0")
 
         # --- Build line model data directly from config.json ---------------
-        lineData = lineprofile.lineData.from_parameters(
-            wavelength_nm=par.line_wavelength_nm,
-            line_strength=par.line_strength,
-            gauss_width_kms=par.line_gauss_width_kms,
-            lorentz_width_fraction=par.line_lorentz_width_fraction,
-            lande_g=par.line_lande_g,
-            limb_darkening=par.line_limb_darkening,
-            gravity_darkening=par.line_gravity_darkening,
-            instRes=par.instrumentRes,
-        )
+        if getattr(par, 'line_model_type', 'voigt') == 'unno':
+            lineData = lineprofile.lineDataUnno.from_parameters(
+                wavelength_nm=par.line_wavelength_nm,
+                line_strength=par.line_strength,
+                gauss_width_kms=par.line_gauss_width_kms,
+                lorentz_width_fraction=par.line_lorentz_width_fraction,
+                lande_g=par.line_lande_g,
+                limb_darkening=par.line_limb_darkening,
+                gravity_darkening=par.line_gravity_darkening,
+                instRes=par.instrumentRes,
+                beta=getattr(par, 'unno_beta', -1.0),
+                filling_factor_I=getattr(par, 'unno_filling_factor_I', 1.0),
+                filling_factor_V=getattr(par, 'unno_filling_factor_V', 1.0),
+            )
+            self._log(
+                "Line model: Unno-Rachkovsky (Milne-Eddington, full polarised RT)"
+            )
+        else:
+            lineData = lineprofile.lineData.from_parameters(
+                wavelength_nm=par.line_wavelength_nm,
+                line_strength=par.line_strength,
+                gauss_width_kms=par.line_gauss_width_kms,
+                lorentz_width_fraction=par.line_lorentz_width_fraction,
+                lande_g=par.line_lande_g,
+                limb_darkening=par.line_limb_darkening,
+                gravity_darkening=par.line_gravity_darkening,
+                instRes=par.instrumentRes,
+            )
+            self._log("Line model: Voigt (weak-field approximation)")
 
         # --- Load observed spectra ----------------------------------------
         obsSet = readObs.obsProfSetInRange(par.fnames, par.velStart,
@@ -139,9 +160,15 @@ class ZDIPipeline:
                                         self.verbose)
 
         # --- Initialize synthetic spectra objects ------------------------
-        setSynSpec = lineprofile.getAllProfDiriv(par, listGridView, vecMagCart,
-                                                 dMagCart0, briMap, lineData,
-                                                 wlSynSet)
+        if getattr(par, 'line_model_type', 'voigt') == 'unno':
+            setSynSpec = lineprofile.getAllProfDirivUnno(
+                par, listGridView, vecMagCart, dMagCart0, briMap, lineData,
+                wlSynSet)
+        else:
+            setSynSpec = lineprofile.getAllProfDiriv(par, listGridView,
+                                                     vecMagCart, dMagCart0,
+                                                     briMap, lineData,
+                                                     wlSynSet)
 
         # --- MEM constants and data vectors ------------------------------
         constMem = memSimple.constantsMEM(par, briMap, magGeom, nDataTot)
@@ -217,6 +244,7 @@ class ZDIPipeline:
                 listGridView, dMagCart0, setSynSpec, constMem,
                 nDataTot, Data, sig2, allModeldIdV, weightEntropy, self.verbose,
                 stop_event=self.stop_event,
+                callback=self.callback,
             )
 
         # --- Save outputs ------------------------------------------------
@@ -244,6 +272,101 @@ class ZDIPipeline:
         self._log(f"  Test:        {test:.6f}")
         self._log(f"  Mean bright: {meanBright:.7f}")
         self._log(f"  Mean |B|:    {meanMag:.4f} G")
+
+        # --- Magnetic field energy analysis (after Donati/Lehmann-Petit) ---
+        mag_energy = {}
+        if par.fitMag == 1 and magGeom.nTot > 0:
+            _l = magGeom.l
+            _m = magGeom.m
+            _lTerm = _l / (_l + 1)
+            _m0 = (_m == 0).astype(float)
+
+            def _E(coeff):
+                e = 0.5 * coeff * np.conj(coeff)
+                e += _m0 * 0.25 * (coeff**2 + np.conj(coeff)**2)
+                return np.real(e)
+
+            alphaEs = _E(magGeom.alpha)
+            betaEs = _E(magGeom.beta) * _lTerm
+            gammaEs = _E(magGeom.gamma) * _lTerm
+
+            totE = float(np.sum(alphaEs) + np.sum(betaEs) + np.sum(gammaEs))
+            totEpol = float(np.sum(alphaEs) + np.sum(betaEs))
+            totEtor = float(np.sum(gammaEs))
+
+            if totE > 0:
+                # per-l energy buckets
+                Epol_l = {}
+                Etor_l = {}
+                for i in range(magGeom.nTot):
+                    li = int(_l[i])
+                    Epol_l[li] = Epol_l.get(
+                        li, 0.0) + float(alphaEs[i] + betaEs[i])
+                    Etor_l[li] = Etor_l.get(li, 0.0) + float(gammaEs[i])
+
+                # axisymmetric
+                totEaxi = float(np.sum((alphaEs + betaEs + gammaEs) * _m0))
+                polEaxi = float(np.sum((alphaEs + betaEs) * _m0))
+                torEaxi = float(np.sum(gammaEs * _m0))
+
+                mag_energy = {
+                    "totE": totE,
+                    "pct_pol": totEpol / totE,
+                    "pct_tor": totEtor / totE,
+                    "pct_axi": totEaxi / totE,
+                    "pct_pol_axi": polEaxi / totEpol if totEpol > 0 else 0.0,
+                    "pct_tor_axi": torEaxi / totEtor if totEtor > 0 else 0.0,
+                    "pol_by_l": {
+                        str(li):
+                        (Epol_l.get(li, 0.0) / totEpol if totEpol > 0 else 0.0)
+                        for li in range(1, magGeom.nl + 1)
+                    },
+                    "tor_by_l": {
+                        str(li):
+                        (Etor_l.get(li, 0.0) / totEtor if totEtor > 0 else 0.0)
+                        for li in range(1, magGeom.nl + 1)
+                    },
+                }
+
+                self._log("")
+                self._log("Magnetic Field Energy Analysis")
+                self._log("-" * 44)
+                self._log(
+                    f"  Poloidal:        {mag_energy['pct_pol']:7.3%}  (% tot)"
+                )
+                self._log(
+                    f"  Toroidal:        {mag_energy['pct_tor']:7.3%}  (% tot)"
+                )
+                self._log(
+                    f"  Axisymmetric:    {mag_energy['pct_axi']:7.3%}  (% tot)"
+                )
+                if totEpol > 0:
+                    self._log(
+                        f"  Pol axisym:      {mag_energy['pct_pol_axi']:7.3%}  (% pol)"
+                    )
+                if totEtor > 0:
+                    self._log(
+                        f"  Tor axisym:      {mag_energy['pct_tor_axi']:7.3%}  (% tor)"
+                    )
+                self._log("  Poloidal by order:")
+                for li in range(1, min(magGeom.nl + 1, 6)):
+                    pct = mag_energy['pol_by_l'].get(str(li), 0.0)
+                    if totEpol > 0 and pct > 0:
+                        _lnames = {
+                            1: 'dipole',
+                            2: 'quadrupole',
+                            3: 'octopole',
+                            4: 'l=4',
+                            5: 'l=5'
+                        }
+                        self._log(
+                            f"    {_lnames.get(li, f'l={li}'):15s} {pct:7.3%}  (% pol)"
+                        )
+                self._log("  Toroidal by order:")
+                for li in range(1, min(magGeom.nl + 1, 6)):
+                    pct = mag_energy['tor_by_l'].get(str(li), 0.0)
+                    if totEtor > 0 and pct > 0:
+                        self._log(f"    l={li:<13d} {pct:7.3%}  (% tor)")
 
         chi_aim = par.chiTarget * float(constMem.nDataTotIV)
         converged = ((chi2 * constMem.nDataTotIV <= chi_aim * 1.001) and
@@ -313,6 +436,8 @@ class ZDIPipeline:
                 (lc_jdates.tolist() if lc_jdates is not None else []),
                 "lc_obs_flux":
                 (lc_obs_flux.tolist() if lc_obs_flux is not None else []),
+                "mag_energy":
+                mag_energy,
             },
         )
         return result

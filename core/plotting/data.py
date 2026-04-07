@@ -51,3 +51,16 @@ class MagneticPolarData:
     clat_grid: np.ndarray  # (npClat,) colatitude [rad], eps..π-eps
     obs_phases: np.ndarray  # (N_obs,) rotation phases in [0, 1)
     discrete_levels: int = 10
+
+
+@dataclass
+class BrightnessPolarData:
+    """Brightness map in polar projection.
+
+    The 2-D array ``brightness`` is on a regular (npClat × npLon) grid.
+    """
+    brightness: np.ndarray  # (npClat, npLon) normalised surface brightness
+    lon_grid: np.ndarray  # (npLon,) longitude [rad], 0..2π
+    clat_grid: np.ndarray  # (npClat,) colatitude [rad], eps..π-eps
+    obs_phases: np.ndarray  # (N_obs,) rotation phases in [0, 1)
+    discrete_levels: int = 10

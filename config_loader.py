@@ -114,6 +114,7 @@ class ZDIConfig:
 
         # --- Line model ----------------------------------------------------
         self.estimateStrenght = int(line["estimate_strength"])
+        self.line_model_type = str(line.get("model_type", "voigt")).lower()
         self.line_wavelength_nm = float(line.get("wavelength_nm", 650.0))
         self.line_strength = float(line.get("line_strength", 0.6306))
         self.line_gauss_width_kms = float(line.get("gauss_width_kms", 2.41))
@@ -122,6 +123,20 @@ class ZDIConfig:
         self.line_lande_g = float(line.get("lande_g", 1.195))
         self.line_limb_darkening = float(line.get("limb_darkening", 0.66))
         self.line_gravity_darkening = float(line.get("gravity_darkening", 0.5))
+
+        # Unno-Rachkovsky specific (used only when model_type = "unno")
+        self.unno_beta = float(line.get("unno_beta", -1.0))
+        self.unno_filling_factor_I = float(
+            line.get("unno_filling_factor_I", 1.0))
+        self.unno_filling_factor_V = float(
+            line.get("unno_filling_factor_V", 1.0))
+
+        # Validate line model type
+        valid_line_model_types = ("voigt", "unno")
+        if self.line_model_type not in valid_line_model_types:
+            raise ValueError(
+                f"Invalid line model type: {self.line_model_type!r}. "
+                f"Must be one of: {valid_line_model_types}")
 
         # Deprecated compatibility field: retained for old configs.
         self.model_file = _r(
