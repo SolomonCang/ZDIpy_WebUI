@@ -11,6 +11,7 @@ from core.plotting.data import ProfilePlotData, SurfaceMapData, LightCurvePlotDa
 
 class PlotlyBackend(PlotBackend):
     """Produce JSON-serialisable Plotly dicts for the web API."""
+
     def plot_profiles(self, data: ProfilePlotData) -> dict:
         """Return a single Plotly figure containing all phases.
 
@@ -54,7 +55,7 @@ class PlotlyBackend(PlotBackend):
                     "color": "#f85149",
                     "width": 1.5
                 },
-                "name": f"I mod  φ={phase:.3f}",
+                "name": f"model  φ={phase:.3f}",
                 "legendgroup": f"phase{i}",
                 "visible": visible,
             })
@@ -66,7 +67,7 @@ class PlotlyBackend(PlotBackend):
                 "mode": "markers",
                 "marker": {
                     "size": 3,
-                    "color": "#8b949e"
+                    "color": "#5d6be5"
                 },
                 "name": f"V obs  φ={phase:.3f}",
                 "legendgroup": f"phase{i}",
@@ -88,7 +89,7 @@ class PlotlyBackend(PlotBackend):
                 "y": data.mod_V[i].tolist(),
                 "mode": "lines",
                 "line": {
-                    "color": "#58a6ff",
+                    "color": "#f85149",
                     "width": 1.5
                 },
                 "name": f"V mod  φ={phase:.3f}",

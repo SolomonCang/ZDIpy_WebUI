@@ -205,7 +205,7 @@ async function loadProfiles() {
     if (phase.stokes_V_mod) {
       tracesV.push({
         x: phase.vel_mod, y: phase.stokes_V_mod,
-        mode: 'lines', line: { color: '#58a6ff', width: 1.5 },
+        mode: 'lines', line: { color: '#f85149', width: 1.5 },
         name: 'Model V', showlegend: false,
       });
     }
