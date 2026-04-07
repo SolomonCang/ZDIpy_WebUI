@@ -207,7 +207,7 @@ def _unno_profile(
 
     sI = (1.0 + beta_mu / Delta * etaI *
           (etaI**2 + rhoQ**2 + rhoV**2)) / safe_denom
-    sV = -(beta_mu / safe_denom) / Delta * (etaV * etaI**2 + etaV *
+    sV = -(beta_mu / safe_denom) / Delta * (etaV * etaI**2 + rhoV *
                                             (etaQ * rhoQ + etaV * rhoV))
 
     return sI, sV
@@ -230,6 +230,7 @@ class lineDataUnno:
     通常通过 ``from_parameters()`` 类方法由 config.json 参数构造，
     也可通过 ``from_file()`` 从扩展格式文件读取。
     """
+
     def __init__(self) -> None:
         self.wl0 = np.array([])
         self.str = np.array([])
@@ -382,6 +383,7 @@ class localProfileAndDerivUnno:
     view_angle: (N_cells,)
         视线与格点法线夹角（rad）。
     """
+
     def __init__(
         self,
         ldata: lineDataUnno,
@@ -568,6 +570,7 @@ class diskIntProfAndDerivUnno:
     与 Voigt 版本的核心区别：``updateIntProfDeriv`` 使用 ``BdBprojected()``
     计算 Bmod 和 Btheta，而非仅取 B 的视线分量。
     """
+
     def __init__(
         self,
         visible_grid,
