@@ -428,6 +428,8 @@ class ZDIPipeline:
                 float(meanBrightDiff),
                 "mean_mag":
                 float(meanMag),
+                "kL_fitted":
+                float(lineData.str[0]),
                 "clat":
                 sGrid.clat.tolist(),
                 "lon":

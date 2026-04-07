@@ -77,9 +77,9 @@ document.addEventListener('click', e => {
 });
 
 // ---------------------------------------------------------------------------
-// Plotly common layout fragment (dark theme)
+// Plotly layout fragments (theme-aware)
 // ---------------------------------------------------------------------------
-const PLOTLY_BASE_LAYOUT = {
+const _PLOTLY_DARK = {
   paper_bgcolor: '#21262d',
   plot_bgcolor:  '#0d1117',
   font: { family: "'JetBrains Mono', 'Consolas', monospace", color: '#f0f6fc', size: 10 },
@@ -87,6 +87,17 @@ const PLOTLY_BASE_LAYOUT = {
   xaxis: { gridcolor: '#30363d', zerolinecolor: '#484f58', color: '#8b949e' },
   yaxis: { gridcolor: '#30363d', zerolinecolor: '#484f58', color: '#8b949e' },
 };
+const _PLOTLY_LIGHT = {
+  paper_bgcolor: '#ffffff',
+  plot_bgcolor:  '#f8f8fa',
+  font: { family: "'JetBrains Mono', 'Consolas', monospace", color: '#1c1c1e', size: 10 },
+  margin: { t: 28, r: 16, b: 40, l: 50 },
+  xaxis: { gridcolor: '#e0e0e8', zerolinecolor: '#c0c0c8', color: '#5a5a7a' },
+  yaxis: { gridcolor: '#e0e0e8', zerolinecolor: '#c0c0c8', color: '#5a5a7a' },
+};
+
+// PLOTLY_BASE_LAYOUT is a live object — update its properties on theme change
+const PLOTLY_BASE_LAYOUT = { ..._PLOTLY_DARK };
 
 const PLOTLY_CONFIG = {
   responsive: true,
@@ -94,6 +105,37 @@ const PLOTLY_CONFIG = {
   modeBarButtonsToRemove: ['sendDataToCloud', 'autoScale2d', 'resetScale2d'],
   displaylogo: false,
 };
+
+// ---------------------------------------------------------------------------
+// Light / Dark theme toggle
+// ---------------------------------------------------------------------------
+const _THEME_KEY = 'zdipy-theme';
+
+function _applyTheme(theme) {
+  const isLight = theme === 'light';
+  document.documentElement.dataset.theme = isLight ? 'light' : '';
+  const btn = document.getElementById('theme-toggle-btn');
+  if (btn) {
+    btn.textContent = isLight ? '☀️' : '🌙';
+    btn.title = isLight ? 'Switch to dark mode' : 'Switch to light mode';
+    btn.setAttribute('aria-label', btn.title);
+  }
+  // Update Plotly layout tokens so newly-rendered charts pick up current theme
+  Object.assign(PLOTLY_BASE_LAYOUT, isLight ? _PLOTLY_LIGHT : _PLOTLY_DARK);
+}
+
+// Initialise from stored preference (default: dark)
+_applyTheme(localStorage.getItem(_THEME_KEY) || 'dark');
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById('theme-toggle-btn');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
+    localStorage.setItem(_THEME_KEY, next);
+    _applyTheme(next);
+  });
+});
 
 // Expose globals used by other modules
 window.apiFetch       = apiFetch;

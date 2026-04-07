@@ -123,26 +123,32 @@ def fitLineStrength(meanEquivWidObs: float,
         详细输出级别（默认 1）。
     """
     from scipy.optimize import minimize_scalar  # noqa: PLC0415
-    # 延迟导入 diskIntProfAndDeriv 以避免循环导入
-    from core.line_models.profile import diskIntProfAndDeriv  # noqa: PLC0415
+
+    # 根据 lineData 实际类型选择正确的盘积分类，避免 UR 模式下用 Voigt EW 校准
+    from core.line_models.unno import lineDataUnno as _lineDataUnno  # noqa: PLC0415
+    if isinstance(lineData, _lineDataUnno):
+        from core.line_models.unno import diskIntProfAndDerivUnno as _DiskIntCls  # noqa: PLC0415
+    else:
+        from core.line_models.profile import diskIntProfAndDeriv as _DiskIntCls  # noqa: PLC0415
 
     if verbose == 1:
         print('fitting line strength (by equivalent width)')
 
     setSynSpec = []
     for nObs, _phase in enumerate(par.cycleList):
-        spec = diskIntProfAndDeriv(listGridView[nObs], vecMagCart, dMagCart0,
-                                   briMap, lineData, par.velEq, wlSynSet[nObs],
-                                   0, 0)
+        spec = _DiskIntCls(listGridView[nObs], vecMagCart, dMagCart0, briMap,
+                           lineData, par.velEq, wlSynSet[nObs], 0, 0)
         spec.convolveIGnumpy(par.instrumentRes)
         setSynSpec.append(spec)
 
+    # 使用有界搜索，搜索区间 [kL*1e-4, kL*1e4]——对低 β 的 UR 模型更鲁棒，
+    # 避免 Brent 三点包围在凹形/平坦曲线上失败。
+    kL0 = lineData.str[0]
     fitResult = minimize_scalar(
         equivWidComp2,
-        bracket=(lineData.str[0] * 0.01, lineData.str[0],
-                 lineData.str[0] * 100.0),
-        method='brent',
-        tol=1e-5,
+        bounds=(kL0 * 1e-4, kL0 * 1e4),
+        method='bounded',
+        options={'xatol': 1e-5},
         args=(meanEquivWidObs, setSynSpec, lineData),
     )
 

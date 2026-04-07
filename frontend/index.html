@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans:wght@400;500;600&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/css/app.css?v=5" />
+  <link rel="stylesheet" href="/css/app.css?v=6" />
   <!-- Plotly.js (scientific charts, served locally for offline support) -->
   <script src="/js/vendor/plotly.min.js"></script>
 </head>
@@ -29,6 +29,7 @@
         <button class="tab-btn"        data-tab="run"         role="tab" aria-selected="false">▶️ Run</button>
         <button class="tab-btn"        data-tab="results"     role="tab" aria-selected="false">📊 Results</button>
       </nav>
+      <button id="theme-toggle-btn" class="theme-toggle-btn" title="Toggle light/dark mode" aria-label="Toggle light/dark mode">🌙</button>
       <a class="docs-link" href="/docs" target="_blank" title="FastAPI Swagger docs">API docs ↗</a>
     </div>
   </header>
@@ -213,7 +214,7 @@
 
   <!-- ===== FOOTER ===== -->
   <footer class="app-footer">
-    <span>ZDIpy WebUI — Zeeman Doppler Imaging</span>
+    <span>Zeeman Doppler Imaging UI</span>
     <span class="sep">•</span>
     <a href="/docs" target="_blank">API docs</a>
     <span class="sep">•</span>
@@ -221,7 +222,7 @@
   </footer>
 
   <!-- Application JS (order matters) -->
-  <script src="/js/app.js?v=2"></script>
+  <script src="/js/app.js?v=3"></script>
   <script src="/js/config.js?v=4"></script>
   <script src="/js/observations.js"></script>
   <script src="/js/run.js"></script>
