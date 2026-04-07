@@ -34,6 +34,7 @@ class ZDIPipeline:
         When set, the pipeline will stop gracefully at the next iteration
         boundary and return early with ``cancelled=True``.
     """
+
     def __init__(
         self,
         par,
@@ -126,6 +127,7 @@ class ZDIPipeline:
         # Scale Stokes I error bars
         for obs in obsSet:
             obs.scaleIsig(par.chiScaleI)
+            obs.scaleVsig(getattr(par, 'chiScaleV', 1.0))
 
         # --- Initialize stellar grid --------------------------------------
         sGrid = geometryStellar.starGrid(par.nRingsStellarGrid, par.period,

@@ -17,6 +17,42 @@ import numpy as np
 
 _C_KMS = 2.99792458e5  # speed of light in km/s
 
+
+def _chi2_components(par, nDataTot: int, fmodel: np.ndarray, data: np.ndarray,
+                     sig2: np.ndarray) -> tuple[float, float, float]:
+    """Return weighted chi^2 contributions for Stokes I, Stokes V, and extra terms."""
+    n_use = min(fmodel.shape[0], data.shape[0], sig2.shape[0])
+    if n_use <= 0:
+        return 0.0, 0.0, 0.0
+
+    chi2_i = 0.0
+    chi2_v = 0.0
+    idx = 0
+
+    if par.fitBri == 1:
+        end_i = min(idx + nDataTot, n_use)
+        if end_i > idx:
+            chi2_i = float(
+                np.sum((fmodel[idx:end_i] - data[idx:end_i])**2 /
+                       sig2[idx:end_i]))
+        idx = end_i
+
+    if par.fitMag == 1:
+        end_v = min(idx + nDataTot, n_use)
+        if end_v > idx:
+            chi2_v = float(
+                np.sum((fmodel[idx:end_v] - data[idx:end_v])**2 /
+                       sig2[idx:end_v]))
+        idx = end_v
+
+    chi2_extra = 0.0
+    if n_use > idx:
+        chi2_extra = float(
+            np.sum((fmodel[idx:n_use] - data[idx:n_use])**2 / sig2[idx:n_use]))
+
+    return chi2_i, chi2_v, chi2_extra
+
+
 # ---------------------------------------------------------------------------
 # 主拟合循环
 # ---------------------------------------------------------------------------
@@ -94,20 +130,28 @@ def mainFittingLoop(par,
     target_aim = par.ent_aim if par.fixedEntropy == 1 else chi_aim
 
     # UR 模型在 B=0 处 dV/dCoeff=0，响应矩阵退化，MEM 无法建立搜索方向。
-    # 若磁场系数全为零且使用 UR 模型，将 Image 各元素初始化为 defIpm(=defaultBent)
-    # 量级，确保磁场熵梯度 gradS 显著非零（Hobson-Lasenby 熵在 f∼defIpm 时梯度最大）。
+    # 若磁场系数全为零且使用 UR 模型，用随机小扰动初始化：
+    #   - 量级取 defaultBent * 1e-2（足以使响应矩阵非零，同时远小于 defaultBent，
+    #     避免 Hobson-Lasenby 熵梯度在大振幅处趋近于 ±1 形成局部极小值）；
+    #   - 随机复相位打破所有系数同相位的对称性，避免 B∥LOS 辐条形奇异初始场。
     if (par.fitMag == 1 and getattr(par, 'line_model_type', 'voigt') == 'unno'
             and np.all(magGeom.alpha == 0) and np.all(magGeom.beta == 0)
             and np.all(magGeom.gamma == 0)):
-        _binit = par.defaultBent  # 与 defIpm 同量级，保证 gradS ≠ 0
-        magGeom.alpha[:] = _binit * (1.0 + 1.0j)
-        magGeom.beta[:] = _binit * (1.0 + 1.0j)
-        magGeom.gamma[:] = _binit * (1.0 + 1.0j)
+        rng = np.random.default_rng(seed=42)
+        _binit = par.defaultBent * 1e-2
+        n = magGeom.nTot
+        magGeom.alpha[:] = _binit * (rng.standard_normal(n) +
+                                     1j * rng.standard_normal(n))
+        magGeom.beta[:] = _binit * (rng.standard_normal(n) +
+                                    1j * rng.standard_normal(n))
+        magGeom.gamma[:] = _binit * (rng.standard_normal(n) +
+                                     1j * rng.standard_normal(n))
 
     with open('outFitSummary.txt', 'w') as fOutFitSummary:
 
         # 初始化收敛参数
         Chi2 = chi2nu = 0.0
+        chi2I = chi2V = chi2Extra = 0.0
         entropy = 0.0
         test = 1.0
         meanBright = meanBrightDiff = meanMag = 0.0
@@ -165,12 +209,15 @@ def mainFittingLoop(par,
                     weightEntropy, par.defaultBright, par.defaultBent,
                     par.maximumBright, target_aim, par.fixedEntropy)
 
+            chi2I, chi2V, chi2Extra = _chi2_components(par, nDataTot,
+                                                       allModelIV, Data, sig2)
+
             # 统计量
             meanBright = (np.sum(briMap.bright * sGrid.area) /
                           np.sum(sGrid.area))
-            meanBrightDiff = (np.sum(
-                np.abs(briMap.bright - par.defaultBright) * sGrid.area) /
-                              np.sum(sGrid.area))
+            meanBrightDiff = np.sum(
+                np.abs(briMap.bright - par.defaultBright) *
+                sGrid.area) / np.sum(sGrid.area)
             absMagCart = np.sqrt(vecMagCart[0, :]**2 + vecMagCart[1, :]**2 +
                                  vecMagCart[2, :]**2)
             meanMag = np.sum(absMagCart * sGrid.area) / np.sum(sGrid.area)
@@ -184,11 +231,20 @@ def mainFittingLoop(par,
 
             chi2nu = Chi2 / max(float(coMem.nDataTotIV), 1.0)
 
-            _summary = ('it {:3n}  entropy {:13.5f}  chi2 {:10.6f}  '
+            _chi2_parts = []
+            if par.fitBri == 1:
+                _chi2_parts.append(f'chi2I {chi2I:10.4f}')
+            if par.fitMag == 1:
+                _chi2_parts.append(f'chi2V {chi2V:10.4f}')
+            if chi2Extra > 0.0:
+                _chi2_parts.append(f'chi2X {chi2Extra:10.4f}')
+            _chi2_txt = ('  ' + '  '.join(_chi2_parts)) if _chi2_parts else ''
+
+            _summary = ('it {:3n}  entropy {:13.5f}  chi2 {:10.6f}{}  '
                         'Test {:10.6f} meanBright {:10.7f} '
                         'meanSpot {:10.7f} meanMag {:10.4f}'.format(
-                            iIter, entropy, chi2nu, test, meanBright,
-                            meanBrightDiff, meanMag))
+                            iIter, entropy, chi2nu, _chi2_txt, test,
+                            meanBright, meanBrightDiff, meanMag))
             if verbose == 1:
                 print(_summary)
             if callback is not None:
@@ -205,6 +261,8 @@ def mainFittingLoop(par,
         if iIter == 0:
             allModelIV = memSimple.packModelVector(setSynSpec, par.fitBri,
                                                    par.fitMag)
+            chi2I, chi2V, chi2Extra = _chi2_components(par, nDataTot,
+                                                       allModelIV, Data, sig2)
             chi2nu = (np.sum((allModelIV - Data)**2 / sig2) /
                       max(float(coMem.nDataTotIV), 1.0))
             Image = memSimple.packImageVector(briMap, magGeom, par.magGeomType,
@@ -218,9 +276,9 @@ def mainFittingLoop(par,
 
             meanBright = (np.sum(briMap.bright * sGrid.area) /
                           np.sum(sGrid.area))
-            meanBrightDiff = (np.sum(
-                np.abs(briMap.bright - par.defaultBright) * sGrid.area) /
-                              np.sum(sGrid.area))
+            meanBrightDiff = np.sum(
+                np.abs(briMap.bright - par.defaultBright) *
+                sGrid.area) / np.sum(sGrid.area)
             vecMagCart = magGeom.getAllMagVectorsCart()
             absMagCart = np.sqrt(vecMagCart[0, :]**2 + vecMagCart[1, :]**2 +
                                  vecMagCart[2, :]**2)
@@ -229,11 +287,20 @@ def mainFittingLoop(par,
         # 末尾打印（非逐迭代模式或零迭代）
         if (verbose != 1 and par.numIterations > 0) or (verbose == 1
                                                         and iIter == 0):
-            _summary = ('it {:3n}  entropy {:13.5f}  chi2 {:10.6f}  '
+            _chi2_parts = []
+            if par.fitBri == 1:
+                _chi2_parts.append(f'chi2I {chi2I:10.4f}')
+            if par.fitMag == 1:
+                _chi2_parts.append(f'chi2V {chi2V:10.4f}')
+            if chi2Extra > 0.0:
+                _chi2_parts.append(f'chi2X {chi2Extra:10.4f}')
+            _chi2_txt = ('  ' + '  '.join(_chi2_parts)) if _chi2_parts else ''
+
+            _summary = ('it {:3n}  entropy {:13.5f}  chi2 {:10.6f}{}  '
                         'Test {:10.6f} meanBright {:10.7f} '
                         'meanSpot {:10.7f} meanMag {:10.4f}'.format(
-                            iIter, entropy, chi2nu, test, meanBright,
-                            meanBrightDiff, meanMag))
+                            iIter, entropy, chi2nu, _chi2_txt, test,
+                            meanBright, meanBrightDiff, meanMag))
             print(_summary)
             if callback is not None:
                 callback(_summary)

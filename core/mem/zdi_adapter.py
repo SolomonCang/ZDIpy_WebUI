@@ -461,7 +461,11 @@ class constantsMEM:
                 self.npMagGeom = magGeom.nTot * 2
             else:
                 self.npMagGeom = magGeom.nTot * 6
-            self.nDataTotIV += nDataTot
+            # chi2_scale_V upweights V residuals; nDataTotIV is scaled accordingly
+            # so that chi_aim = chiTarget * nDataTotIV corresponds to per-dof
+            # chi2 == chiTarget for *both* I and V at convergence.
+            chi_scale_v = float(getattr(par, 'chiScaleV', 1.0))
+            self.nDataTotIV += nDataTot * chi_scale_v
         self.n1Model = self.npBriMap
         self.n2Model = self.n1Model
         if (par.fEntropyBright == 2):
@@ -479,9 +483,9 @@ def setEntropyWeights(par, magGeom, sGrid):
     # weightEntropyV = np.ones(magGeom.nTot*6)  #alternately use no weighting (everything = 1)
     if magGeom.magGeomType == 'poloidal':
         weightEntropyV = np.tile(magGeom.l, 4)
-    if magGeom.magGeomType == 'pottor':
+    elif magGeom.magGeomType == 'pottor':
         weightEntropyV = np.tile(magGeom.l, 4)
-    if magGeom.magGeomType == 'potential':
+    elif magGeom.magGeomType == 'potential':
         weightEntropyV = np.tile(magGeom.l, 2)
     else:
         weightEntropyV = np.tile(magGeom.l, 6)

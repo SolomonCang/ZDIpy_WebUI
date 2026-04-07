@@ -20,6 +20,7 @@ class ZDIConfig:
     Provides the same interface consumed by the ZDIpy pipeline so that
     both the WebUI and the CLI can share the same configuration.
     """
+
     def __init__(self, config_path: str):
         self.config_path = str(config_path)
         self._base = Path(config_path).parent.resolve()
@@ -105,6 +106,7 @@ class ZDIConfig:
         # --- Brightness ----------------------------------------------------
         self.fitBri = int(bri["fit_brightness"])
         self.chiScaleI = float(bri["chi2_scale_I"])
+        self.chiScaleV = float(bri.get("chi2_scale_V", 1.0))
         self.brightEntScale = float(bri["entropy_scale"])
         self.fEntropyBright = int(bri["entropy_form"])
         self.defaultBright = float(bri["default_bright"])
@@ -355,6 +357,7 @@ class ZDIConfig:
             "brightness": {
                 "fit_brightness": 0,
                 "chi2_scale_I": 1.0,
+                "chi2_scale_V": 1.0,
                 "entropy_scale": 1.0,
                 "entropy_form": 1,
                 "default_bright": 1.0,

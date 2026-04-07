@@ -51,6 +51,7 @@ const CONFIG_SCHEMA = [
     fields: [
       { key: 'fit_brightness', label: 'Fit brightness map',              type: 'checkbox', tooltip: 'Enable inversion of the surface brightness map from Stokes I profiles.' },
       { key: 'chi2_scale_I',   label: 'χ² scale for Stokes I',          type: 'number', step: 0.01,  tooltip: 'Weighting factor applied to the Stokes I χ² contribution during inversion.' },
+      { key: 'chi2_scale_V',   label: 'χ² scale for Stokes V',          type: 'number', step: 0.01,  tooltip: 'Weighting factor applied to the Stokes V χ² contribution during joint inversion. Increase this when brightness fitting overwhelms the magnetic update.' },
       { key: 'entropy_scale',  label: 'Entropy scale',                   type: 'number', step: 0.01,  tooltip: 'Weighting factor for the entropy regularisation term in the brightness inversion.' },
       { key: 'entropy_form',   label: 'Entropy form  (1=image, 2=fill)', type: 'select', options: [1, 2], tooltip: 'Entropy functional form: 1 = image entropy (favours uniform map), 2 = fill entropy (favours uniform deviation from default).' },
       { key: 'default_bright', label: 'Default brightness',              type: 'number', step: 0.01,  tooltip: 'Reference (default) brightness for the entropy regularisation. Pixels are regularised toward this value.' },

@@ -27,6 +27,7 @@
   "brightness": {
     "fit_brightness": 0,
     "chi2_scale_I": 1,
+    "chi2_scale_V": 10,
     "entropy_scale": 1,
     "entropy_form": 1,
     "default_bright": 1,
@@ -35,7 +36,7 @@
     "init_file": "/Users/tianqi/Documents/Codes_collection/ZDI_and/ZDIpy_WebUI/ZDIpy_WebUI/results/outBrightMap.dat"
   },
   "line_model": {
-    "model_type": "unno",
+    "model_type": "voigt",
     "estimate_strength": 1,
     "wavelength_nm": 650,
     "line_strength": 0.6306,

@@ -4,6 +4,7 @@ c = 2.99792458e5
 
 
 class obsProf:
+
     def __init__(self, obsFileName):
         # Read an observed (LSD) profile from obsFileName, and return it as an obsProf object.
         # If no file name is given, create an empty obsProf object
@@ -39,6 +40,13 @@ class obsProf:
         # Re-scale the Stokes I error bars, to incorporate the chi^2 scaling for I
         # (in an indirect fashion).
         self.specIsig /= np.sqrt(chiScaleI)
+
+    def scaleVsig(self, chiScaleV):
+        # Re-scale the Stokes V error bars, to incorporate the chi^2 scaling for V.
+        # chiScaleV > 1 upweights V in the joint chi^2, giving the magnetic-field
+        # update more influence relative to brightness.  Use ~1000 when starting
+        # joint inversion from B=0 to balance the gradient magnitudes.
+        self.specVsig /= np.sqrt(chiScaleV)
 
 
 def obsProfSet(obsFileNameList):
