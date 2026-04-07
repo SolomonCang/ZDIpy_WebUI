@@ -31,12 +31,13 @@ app = FastAPI(
     description=
     ("REST + SSE backend for the ZDIpy Zeeman Doppler Imaging web interface. "
      "Interactive API docs available at /docs."),
-    version="2.0.0",
+    version="1.0.0",
 )
 
 
 # --- Security headers middleware ----------------------------------------
 class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
+
     async def dispatch(self, request: StarletteRequest, call_next):
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
