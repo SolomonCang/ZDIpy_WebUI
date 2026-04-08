@@ -46,6 +46,14 @@ from core.line_models.unno import (  # noqa: F401
     getAllProfDirivUnno,
 )
 
+# ---------------------------------------------------------------------------
+# H-alpha 双峰复合 Voigt 模型（弱场近似，发射 + 自吸收）
+# ---------------------------------------------------------------------------
+from core.line_models.halpha import (  # noqa: F401
+    lineDataHalpha, localProfileAndDerivHalpha, diskIntProfAndDerivHalpha,
+    getAllProfDirivHalpha,
+)
+
 __all__ = [
     # 新架构
     "LineModel",
@@ -67,4 +75,9 @@ __all__ = [
     "localProfileAndDerivUnno",
     "diskIntProfAndDerivUnno",
     "getAllProfDirivUnno",
+    # H-alpha 双峰复合 Voigt
+    "lineDataHalpha",
+    "localProfileAndDerivHalpha",
+    "diskIntProfAndDerivHalpha",
+    "getAllProfDirivHalpha",
 ]

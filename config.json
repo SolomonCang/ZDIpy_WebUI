@@ -33,12 +33,12 @@
     "default_bright": 1,
     "max_bright": 1.01,
     "init_from_file": 0,
-    "init_file": "/Users/tianqi/Documents/Codes_collection/ZDI_and/ZDIpy_WebUI/ZDIpy_WebUI/results/outBrightMap.dat"
+    "init_file": "outBrightMap.dat"
   },
   "line_model": {
-    "model_type": "voigt",
+    "model_type": "halpha_compound",
     "estimate_strength": 1,
-    "wavelength_nm": 650,
+    "wavelength_nm": 656.28,
     "line_strength": 0.6306,
     "gauss_width_kms": 2.41,
     "lorentz_width_fraction": 0.89,
@@ -47,7 +47,14 @@
     "gravity_darkening": 0.5,
     "unno_beta": -1,
     "unno_filling_factor_I": 0,
-    "unno_filling_factor_V": 1
+    "unno_filling_factor_V": 1,
+    "emission_strength": 2.5,
+    "emission_gauss_kms": 80.0,
+    "emission_lorentz_ratio": 0.15,
+    "absorption_strength": 1.2,
+    "absorption_gauss_kms": 25.0,
+    "absorption_lorentz_ratio": 0.1,
+    "filling_factor_V": 1.0
   },
   "instrument": {
     "spectral_resolution": 65000

@@ -133,8 +133,24 @@ class ZDIConfig:
         self.unno_filling_factor_V = float(
             line.get("unno_filling_factor_V", 1.0))
 
+        # H-alpha compound model specific (used only when model_type = "halpha_compound")
+        self.halpha_lande_g = float(line.get("lande_g", 1.048))
+        self.halpha_emission_strength = float(
+            line.get("emission_strength", 2.5))
+        self.halpha_emission_gauss_kms = float(
+            line.get("emission_gauss_kms", 80.0))
+        self.halpha_emission_lorentz_ratio = float(
+            line.get("emission_lorentz_ratio", 0.15))
+        self.halpha_absorption_strength = float(
+            line.get("absorption_strength", 0.0))
+        self.halpha_absorption_gauss_kms = float(
+            line.get("absorption_gauss_kms", 25.0))
+        self.halpha_absorption_lorentz_ratio = float(
+            line.get("absorption_lorentz_ratio", 0.10))
+        self.halpha_filling_factor_V = float(line.get("filling_factor_V", 1.0))
+
         # Validate line model type
-        valid_line_model_types = ("voigt", "unno")
+        valid_line_model_types = ("voigt", "unno", "halpha_compound")
         if self.line_model_type not in valid_line_model_types:
             raise ValueError(
                 f"Invalid line model type: {self.line_model_type!r}. "

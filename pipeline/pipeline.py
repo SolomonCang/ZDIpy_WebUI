@@ -86,7 +86,8 @@ class ZDIPipeline:
             self._log("Forward-only mode: numIterations set to 0")
 
         # --- Build line model data directly from config.json ---------------
-        if getattr(par, 'line_model_type', 'voigt') == 'unno':
+        _model_type = getattr(par, 'line_model_type', 'voigt')
+        if _model_type == 'unno':
             lineData = lineprofile.lineDataUnno.from_parameters(
                 wavelength_nm=par.line_wavelength_nm,
                 line_strength=par.line_strength,
@@ -102,6 +103,31 @@ class ZDIPipeline:
             )
             self._log(
                 "Line model: Unno-Rachkovsky (Milne-Eddington, full polarised RT)"
+            )
+        elif _model_type == 'halpha_compound':
+            lineData = lineprofile.lineDataHalpha.from_parameters(
+                wavelength_nm=par.line_wavelength_nm,
+                lande_g=getattr(par, 'halpha_lande_g', 1.048),
+                limb_darkening=par.line_limb_darkening,
+                gravity_darkening=par.line_gravity_darkening,
+                emission_strength=getattr(par, 'halpha_emission_strength',
+                                          2.5),
+                emission_gauss_kms=getattr(par, 'halpha_emission_gauss_kms',
+                                           80.0),
+                emission_lorentz_ratio=getattr(
+                    par, 'halpha_emission_lorentz_ratio', 0.15),
+                absorption_strength=getattr(par, 'halpha_absorption_strength',
+                                            0.0),
+                absorption_gauss_kms=getattr(par,
+                                             'halpha_absorption_gauss_kms',
+                                             25.0),
+                absorption_lorentz_ratio=getattr(
+                    par, 'halpha_absorption_lorentz_ratio', 0.10),
+                filling_factor_V=getattr(par, 'halpha_filling_factor_V', 1.0),
+                instRes=par.instrumentRes,
+            )
+            self._log(
+                "Line model: H-alpha compound double-Voigt (weak-field approximation)"
             )
         else:
             lineData = lineprofile.lineData.from_parameters(
@@ -162,8 +188,13 @@ class ZDIPipeline:
                                         self.verbose)
 
         # --- Initialize synthetic spectra objects ------------------------
-        if getattr(par, 'line_model_type', 'voigt') == 'unno':
+        _model_type_spec = getattr(par, 'line_model_type', 'voigt')
+        if _model_type_spec == 'unno':
             setSynSpec = lineprofile.getAllProfDirivUnno(
+                par, listGridView, vecMagCart, dMagCart0, briMap, lineData,
+                wlSynSet)
+        elif _model_type_spec == 'halpha_compound':
+            setSynSpec = lineprofile.getAllProfDirivHalpha(
                 par, listGridView, vecMagCart, dMagCart0, briMap, lineData,
                 wlSynSet)
         else:
@@ -180,7 +211,8 @@ class ZDIPipeline:
         # it once is exact and efficient. For non-linear (UR) models R(B) changes
         # with B at every iteration, so calcDV must remain 1 so the fitting loop
         # recomputes R after each MEM step (Gauss-Newton linearization).
-        _model_is_linear = getattr(par, 'line_model_type', 'voigt') != 'unno'
+        _model_is_linear = getattr(par, 'line_model_type',
+                                   'voigt') in ('voigt', 'halpha_compound')
         if (par.calcDV == 1) and (par.calcDI != 1) and _model_is_linear:
             allModeldIdV = memSimple.packResponseMatrix(
                 setSynSpec, nDataTot, constMem.npBriMap, magGeom,
