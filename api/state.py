@@ -13,6 +13,7 @@ _state: Dict[str, Any] = {
     "log_lines": [],
     "result": None,
     "error": None,
+    "halpha_init_plot": None,
 }
 
 
@@ -42,3 +43,4 @@ def reset_state() -> None:
         _state["log_lines"] = []
         _state["result"] = None
         _state["error"] = None
+        _state["halpha_init_plot"] = None

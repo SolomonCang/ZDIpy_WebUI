@@ -143,6 +143,18 @@
         </div>
         <pre id="run-log" class="terminal" aria-live="polite" aria-label="Run log"></pre>
       </div>
+
+      <!-- Hα 预处理结果（仅 halpha_compound 模型启用时显示） -->
+      <div class="card results-card" id="halpha-preproc-card" style="display:none; margin-top:16px">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between">
+          <span>Hα 发射归一化 &amp; 复合模型初始参数估算</span>
+          <span id="halpha-preproc-badge" style="font-size:11px;color:#8b949e"></span>
+        </div>
+        <div id="halpha-preproc-plot" style="width:100%;min-height:380px"></div>
+        <p id="halpha-preproc-no-data" class="no-data-msg" style="display:none">
+          请先启用 <em>自动估算复合模型初始参数</em> 并使用 halpha_compound 模型运行 ZDI。
+        </p>
+      </div>
     </section>
 
     <!-- ── Tab: Results ─────────────────────────────────────────── -->
@@ -223,9 +235,9 @@
 
   <!-- Application JS (order matters) -->
   <script src="/js/app.js?v=3"></script>
-  <script src="/js/config.js?v=6"></script>
+  <script src="/js/config.js?v=7"></script>
   <script src="/js/observations.js"></script>
-  <script src="/js/run.js"></script>
+  <script src="/js/run.js?v=2"></script>
   <script src="/js/results.js?v=3"></script>
 </body>
 </html>

@@ -146,6 +146,44 @@ class ZDIPipeline:
         obsSet = readObs.obsProfSetInRange(par.fnames, par.velStart,
                                            par.velEnd, par.velRs)
 
+        # --- H-alpha pre-processing (only for halpha_compound model) -----
+        _halpha_init_plot: dict | None = None
+        if _model_type == 'halpha_compound':
+            from core.line_models.halpha_preproc import (  # noqa: PLC0415
+                normalize_halpha_emission, auto_estimate_halpha_params,
+            )
+            # Step 1: 发射强度归一化
+            if getattr(par, 'halpha_normalize_emission', True):
+                normalize_halpha_emission(list(obsSet),
+                                          par.velRs,
+                                          log_fn=self._log)
+
+            # Step 2: 自动参数估算并更新 lineData
+            if getattr(par, 'halpha_auto_init', True):
+                self._log("自动估算 Hα 复合模型初始参数…")
+                auto_result = auto_estimate_halpha_params(list(obsSet),
+                                                          par.velRs,
+                                                          lineData,
+                                                          log_fn=self._log)
+                # Update lineData with fitted parameters
+                fitted_p = auto_result["params"]
+                lineData.A_em[0] = fitted_p["emission_strength"]
+                lineData.widthGauss_em[0] = fitted_p["emission_gauss_kms"]
+                lineData.widthLorentz_em[0] = fitted_p[
+                    "emission_lorentz_ratio"]
+                lineData.A_abs[0] = fitted_p["absorption_strength"]
+                lineData.widthGauss_abs[0] = fitted_p["absorption_gauss_kms"]
+                lineData.widthLorentz_abs[0] = fitted_p[
+                    "absorption_lorentz_ratio"]
+                # interface-compat aliases
+                lineData.str[0] = lineData.A_em[0]
+                lineData.widthGauss[0] = lineData.widthGauss_em[0]
+                lineData.widthLorentz[0] = lineData.widthLorentz_em[0]
+                # Store plot data
+                _halpha_init_plot = auto_result["plot_data"]
+                # Signal frontend that plot is ready
+                self._log("[HALPHA_INIT_PLOT_READY]")
+
         # --- Build wavelength grid ----------------------------------------
         wlSynSet, nDataTot = readObs.getWavelengthGrid(par.velRs, obsSet,
                                                        lineData, self.verbose)
@@ -458,6 +496,7 @@ class ZDIPipeline:
             synthetic_profiles=syn_profiles,
             observed_profiles=obs_profiles,
             light_curve_synthetic=(lc_syn if lc_syn is not None else None),
+            halpha_init_plot=_halpha_init_plot,
             metadata={
                 "config_path":
                 str(par.config_path),

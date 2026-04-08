@@ -12,6 +12,7 @@ from typing import AsyncGenerator
 
 class _StateLogHandler(logging.Handler):
     """Append zdipy log records to the shared run state (SSE stream)."""
+
     def emit(self, record: logging.LogRecord) -> None:
         from api.state import append_log  # deferred to avoid circular import
         append_log(self.format(record))
@@ -44,6 +45,7 @@ _stop_event = threading.Event()
 # Background run thread
 # ---------------------------------------------------------------------------
 def _run_thread(config_path: str, forward_only: bool, verbose: int) -> None:
+
     def _callback(msg: str) -> None:
         append_log(msg)
 
@@ -57,6 +59,9 @@ def _run_thread(config_path: str, forward_only: bool, verbose: int) -> None:
             progress_callback=_callback,
             stop_event=_stop_event,
         )
+        # Extract H-alpha init plot before serialising the full result
+        if result.halpha_init_plot is not None:
+            update_state(halpha_init_plot=result.halpha_init_plot)
         _summary = {
             "iterations": result.iterations,
             "entropy": f"{result.entropy:.5f}",
@@ -96,7 +101,11 @@ def start_run(req: RunRequest) -> dict:
         }
 
     config_path = req.config_path or str(Path(_ROOT) / "config.json")
-    update_state(status="running", log_lines=[], result=None, error=None)
+    update_state(status="running",
+                 log_lines=[],
+                 result=None,
+                 error=None,
+                 halpha_init_plot=None)
 
     t = threading.Thread(
         target=_run_thread,
@@ -123,6 +132,7 @@ def get_status() -> RunStatus:
 @router.get("/run/stream")
 async def stream_log() -> StreamingResponse:
     """Server-Sent Events endpoint: streams log lines in real time."""
+
     async def _generator() -> AsyncGenerator[str, None]:
         from api.state import get_state  # noqa: PLC0415
         sent = 0
@@ -156,6 +166,25 @@ async def stream_log() -> StreamingResponse:
             "X-Accel-Buffering": "no"
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# GET /api/run/halpha_init_plot
+# ---------------------------------------------------------------------------
+@router.get("/run/halpha_init_plot")
+def get_halpha_init_plot():
+    """Return the H-alpha pre-processing Plotly JSON dict (if available)."""
+    from api.state import get_state  # noqa: PLC0415
+    from fastapi import HTTPException  # noqa: PLC0415
+    st = get_state()
+    plot = st.get("halpha_init_plot")
+    if plot is None:
+        raise HTTPException(
+            status_code=404,
+            detail=
+            "No H-alpha init plot available. Run with halpha_compound model first.",
+        )
+    return plot
 
 
 @router.delete("/run")

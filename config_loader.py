@@ -149,6 +149,11 @@ class ZDIConfig:
             line.get("absorption_lorentz_ratio", 0.10))
         self.halpha_filling_factor_V = float(line.get("filling_factor_V", 1.0))
 
+        # H-alpha pre-processing flags (used only when model_type = "halpha_compound")
+        self.halpha_normalize_emission = bool(
+            line.get("halpha_normalize_emission", True))
+        self.halpha_auto_init = bool(line.get("halpha_auto_init", True))
+
         # Validate line model type
         valid_line_model_types = ("voigt", "unno", "halpha_compound")
         if self.line_model_type not in valid_line_model_types:

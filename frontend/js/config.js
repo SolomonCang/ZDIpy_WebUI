@@ -117,6 +117,15 @@ const CONFIG_SCHEMA = [
       { key: 'filling_factor_V',         label: 'Stokes V filling factor  f_V',         type: 'number', min: 0, step: 0.01,
         visibleWhen: { key: 'model_type', value: 'halpha_compound' },
         tooltip: 'Filling factor applied to the H\u03b1 Stokes V profile. Values < 1 reduce the effective Zeeman signal.' },
+      // ── H-alpha pre-processing flags ──
+      { key: '_halpha_preproc_heading', type: 'subheader', label: 'H\u03b1 预处理选项',
+        visibleWhen: { key: 'model_type', value: 'halpha_compound' } },
+      { key: 'halpha_normalize_emission', label: '发射强度归一化',       type: 'checkbox',
+        visibleWhen: { key: 'model_type', value: 'halpha_compound' },
+        tooltip: '对各历元 Stokes I 发射峰高度做中值归一化，同步缩放 V/N 及对应噪声数组，使不同活动水平的观测可比。' },
+      { key: 'halpha_auto_init',         label: '自动估算复合模型初始参数', type: 'checkbox',
+        visibleWhen: { key: 'model_type', value: 'halpha_compound' },
+        tooltip: '对归一化后的 Stokes I 取中值谱，拟合双 Voigt 模型，自动设定发射/吸收成分的初始参数，并在 Run 面板中绘图显示。' },
     ],
   },
   {

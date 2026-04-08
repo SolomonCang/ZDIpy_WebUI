@@ -27,6 +27,7 @@ class ZDIResult:
     observed_profiles: list[
         dict]  # per-phase {"phase": float, "vel": [...], "I_obs": [...], "V_obs": [...], "I_sig": [...], "V_sig": [...]}
     light_curve_synthetic: np.ndarray | None = None  # (N_lc_obs,), None when not fitted
+    halpha_init_plot: dict | None = None  # Plotly JSON dict for H-alpha pre-processing; None when not used
     metadata: dict = field(
         default_factory=dict
     )  # free key-value pairs (run time, config path, grid coords, …)
@@ -62,6 +63,8 @@ class ZDIResult:
             "light_curve_synthetic":
             (self.light_curve_synthetic.tolist()
              if self.light_curve_synthetic is not None else None),
+            "halpha_init_plot":
+            self.halpha_init_plot,
             "metadata": {
                 k: (v.tolist() if isinstance(v, np.ndarray) else v)
                 for k, v in self.metadata.items()
