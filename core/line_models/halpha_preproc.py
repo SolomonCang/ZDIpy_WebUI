@@ -27,7 +27,8 @@ def _voigt_real(u: np.ndarray, a: float) -> np.ndarray:
     from core.line_models.unno import _voigt_faraday_humlicek  # noqa: PLC0415
     u_arr = np.asarray(u, dtype=float).ravel()
     W = _voigt_faraday_humlicek(u_arr, float(a))
-    return W.real.reshape(np.asarray(u).shape)
+    # 兼容 numpy 1.24+，用 np.real 替代 .real 属性
+    return np.real(W).reshape(np.asarray(u).shape)
 
 
 # ===========================================================================
@@ -112,7 +113,7 @@ def normalize_halpha_emission(
 def _build_median_spectrum(
     obsSet: list,
     vel_rs: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray, list]:
+) -> tuple[np.ndarray, np.ndarray, list, np.ndarray]:
     """将所有观测插值到公共速度网格，返回中值谱。
 
     Returns
@@ -123,6 +124,8 @@ def _build_median_spectrum(
         各格点 Stokes I 中值。
     indiv_I : list of (M,) ndarray
         各历元插值后的 Stokes I（归一）。
+    median_Isig : (M,) ndarray
+        各格点 Stokes I 噪声中值。
     """
     # 各历元移到恒星静止系
     rest_vels = [obs.wl - float(vel_rs[i]) for i, obs in enumerate(obsSet)]
@@ -141,11 +144,14 @@ def _build_median_spectrum(
         # 退化情况：使用第一个观测的速度网格
         vel_common = rest_vels[0]
         indiv_I = [obs.specI.copy() for obs in obsSet]
+        indiv_Isig = [obs.specIsig.copy() for obs in obsSet]
         median_I = np.median(np.vstack(indiv_I), axis=0)
-        return vel_common, median_I, indiv_I
+        median_Isig = np.median(np.vstack(indiv_Isig), axis=0)
+        return vel_common, median_I, indiv_I, median_Isig
 
     vel_common = np.arange(v_min, v_max + 0.5 * dv, dv)
     indiv_I = []
+    indiv_Isig = []
     for i, obs in enumerate(obsSet):
         v_i = rest_vels[i]
         # 边界值采用最近端点
@@ -154,10 +160,17 @@ def _build_median_spectrum(
                              obs.specI,
                              left=obs.specI[0],
                              right=obs.specI[-1])
+        Isig_interp = np.interp(vel_common,
+                                v_i,
+                                obs.specIsig,
+                                left=obs.specIsig[0],
+                                right=obs.specIsig[-1])
         indiv_I.append(I_interp)
+        indiv_Isig.append(Isig_interp)
 
     median_I = np.median(np.vstack(indiv_I), axis=0)
-    return vel_common, median_I, indiv_I
+    median_Isig = np.median(np.vstack(indiv_Isig), axis=0)
+    return vel_common, median_I, indiv_I, median_Isig
 
 
 # ---------------------------------------------------------------------------
@@ -207,133 +220,119 @@ def auto_estimate_halpha_params(
     _log("自动估算 H-alpha 复合模型初始参数…")
 
     # --- 构建中值谱 ---
-    vel, median_I, indiv_I = _build_median_spectrum(obsSet, vel_rs)
+    vel, median_I, indiv_I, median_Isig = _build_median_spectrum(
+        obsSet, vel_rs)
     _log(f"  速度范围: [{float(vel[0]):.1f}, {float(vel[-1]):.1f}] km/s，"
          f"格点数: {len(vel)}")
 
     # --- 初值估算 ---
     i_peak = int(np.argmax(median_I))
     A_em_0 = max(0.01, float(median_I[i_peak]) - 1.0)
-    v_ctr_0 = float(vel[i_peak])
+    dv_mean = float(np.mean(np.abs(np.diff(vel)))) if len(vel) > 1 else 1.0
+
+    # 发射线中心：用超出连续谱部分(I-1)的加权质心，对自反转/双峰轮廓更稳健
+    em_excess = np.clip(median_I - 1.0, 0.0, None)
+    total_weight = float(np.sum(em_excess))
+    if total_weight > 1e-9:
+        v_ctr_0 = float(np.sum(vel * em_excess) / total_weight)
+    else:
+        v_ctr_0 = float(vel[i_peak])
+    i_ctr_0 = int(np.argmin(np.abs(vel - v_ctr_0)))
+
+    # v_center 预先由质心确定后固定（不作为拟合自由参数）
+    _log(f"  固定 v_center = {v_ctr_0:.2f} km/s（发射加权质心）")
 
     # 半高宽 → Gaussian 宽度
     half_max = 1.0 + A_em_0 * 0.5
-    left_hm = np.where(median_I[:i_peak] >= half_max)[0]
-    right_hm = np.where(median_I[i_peak:] >= half_max)[0]
-    fwhm_pts = (len(left_hm) + len(right_hm))
-    dv_mean = float(np.mean(np.abs(np.diff(vel)))) if len(vel) > 1 else 1.0
-    fwhm_est = fwhm_pts * dv_mean
+    above_hm = np.where(median_I >= half_max)[0]
+    if len(above_hm) >= 2:
+        fwhm_est = (int(above_hm[-1]) - int(above_hm[0])) * dv_mean
+    else:
+        fwhm_est = 10.0 * dv_mean
     sigma_em_0 = max(5.0, fwhm_est / 2.3548)
 
-    # 自吸收：在线心附近 ±sigma/4 范围内找强度最低点
-    half_win = max(1, int(sigma_em_0 * 0.25 / dv_mean))
-    iL = max(0, i_peak - half_win)
-    iR = min(len(vel) - 1, i_peak + half_win)
-    i_dip = iL + int(np.argmin(median_I[iL:iR + 1]))
-    # 用纯发射模型在 dip 处估算"理论值"与观测差
-    u_dip = (vel[i_dip] - v_ctr_0) / max(sigma_em_0, 0.1)
-    em_at_dip = 1.0 + A_em_0 * _voigt_real(np.array([u_dip]), 0.15)[0]
-    A_abs_0 = max(0.0, float(em_at_dip) - float(median_I[i_dip]))
-    sigma_abs_0 = max(2.0, sigma_em_0 / 5.0)
+    # --- 初值修正：用观测峰到质心的距离对 A_em 做高斯补偿 ---
+    # 在质心为中心的Voigt中，观测峰(可能在v_ctr左右)并非峰顶，需要向上修正
+    v_peak_offset = abs(float(vel[i_peak]) - v_ctr_0)
+    H_at_peak_offset = float(
+        np.exp(-0.5 * (v_peak_offset / max(sigma_em_0, 1.0))**2))
+    if H_at_peak_offset > 0.1:
+        A_em_0 = max(A_em_0, float(median_I[i_peak] - 1.0) / H_at_peak_offset)
+
+    # 吸收初值：用质心处的理论发射值与观测值之差估算
+    I_em_at_ctr = 1.0 + A_em_0  # 如无自吸收时质心处的理论强度
+    I_data_at_ctr = float(median_I[i_ctr_0])
+    A_abs_0 = max(0.0, I_em_at_ctr - I_data_at_ctr)
+    sigma_abs_0 = max(2.0, sigma_em_0 / 2.0)
 
     _log(f"  初值估算: A_em={A_em_0:.3f}, σ_em={sigma_em_0:.1f} km/s, "
          f"A_abs={A_abs_0:.3f}, σ_abs={sigma_abs_0:.1f} km/s, "
          f"v_center={v_ctr_0:.2f} km/s")
 
-    # --- 非线性拟合（两阶段）---
-    # Stage 1: 仅拟合发射成分（固定 A_abs=0），得到稳定的发射参数
-    def _emission_only(vel, A_em, sigma_em, a_em, v_center):
-        u_em = (vel - v_center) / max(float(sigma_em), 0.1)
-        H_em = _voigt_real(u_em, max(0.0, float(a_em)))
-        return 1.0 + float(A_em) * H_em
+    # --- 非线性拟合（复合模型，v_center 固定）---
+    # 直接拟合 emission - absorption 复合模型，避免二阶段分离带来的退化
+    def _composite_model(vel, A_em, sigma_em, A_abs, sigma_abs):
+        u_em = (vel - v_ctr_0) / max(float(sigma_em), 0.1)
+        u_abs = (vel - v_ctr_0) / max(float(sigma_abs), 0.1)
+        H_em = _voigt_real(u_em, 0.15)
+        H_abs = _voigt_real(u_abs, 0.15)
+        return 1.0 + float(A_em) * H_em - float(A_abs) * H_abs
 
-    p0_em = [A_em_0, sigma_em_0, 0.15, v_ctr_0]
-    lo_em = [0.0, 1.0, 0.0, v_ctr_0 - 30.0]
-    hi_em = [
-        max(10.0, A_em_0 * 6.0),
-        max(300.0, sigma_em_0 * 6.0), 2.0, v_ctr_0 + 30.0
+    p0_c = [A_em_0, sigma_em_0, A_abs_0, sigma_abs_0]
+    lo_c = [0.0, sigma_em_0 * 0.3, 0.0, 1.0]
+    hi_c = [
+        max(5.0, A_em_0 * 2.5),  # A_em: 不超过初值2.5倍
+        sigma_em_0 * 2.5,  # sigma_em: 不超过初值2.5倍
+        max(A_abs_0 * 3.0, 1.0),  # A_abs: 不超过A_abs_0的3倍
+        sigma_em_0,  # sigma_abs < sigma_em（自吸收更窄）
     ]
-    p0_em_safe = [
-        float(np.clip(p0_em[k], lo_em[k], hi_em[k])) for k in range(4)
-    ]
+    p0_c_safe = [float(np.clip(p0_c[k], lo_c[k], hi_c[k])) for k in range(4)]
 
-    A_em_s1, sig_em_s1, a_em_s1, v_ctr_s1 = p0_em_safe  # fallback
+    # 使用形态估算作为 fallback
+    A_em_f, sig_em_f = p0_c_safe[0], p0_c_safe[1]
+    A_abs_f, sig_abs_f = p0_c_safe[2], p0_c_safe[3]
+    a_em_f, a_abs_f = 0.15, 0.15
     fit_ok = False
     try:
-        popt_em, _ = curve_fit(
-            _emission_only,
-            vel,
-            median_I,
-            p0=p0_em_safe,
-            bounds=(lo_em, hi_em),
-            maxfev=20000,
-            ftol=1e-10,
-            xtol=1e-10,
+        # 权重：发射峰越高/越近质心权重越大
+        sigma_noise = np.clip(median_Isig, 1e-6, None)
+        w_peak = np.clip(median_I - 1.0, 0.05, None)
+        w_center = np.exp(-0.5 * ((vel - v_ctr_0) / (sigma_em_0 * 1.5))**2)
+        sigma_eff = sigma_noise / np.clip(w_peak * w_center, 1e-4, None)
+
+        # 拟合窗口：质心±2σ（覆盖整个发射区域）
+        fit_mask = np.abs(vel - v_ctr_0) <= sigma_em_0 * 2.0
+        popt, _ = curve_fit(
+            _composite_model,
+            vel[fit_mask],
+            median_I[fit_mask],
+            p0=p0_c_safe,
+            bounds=(lo_c, hi_c),
+            sigma=sigma_eff[fit_mask],
+            absolute_sigma=True,
+            maxfev=30000,
+            ftol=1e-9,
+            xtol=1e-9,
         )
-        A_em_s1, sig_em_s1, a_em_s1, v_ctr_s1 = popt_em
-        fit_ok = True
+        A_em_f, sig_em_f, A_abs_f, sig_abs_f = popt
+
+        # 合理性检验：发射宽度不超过初值2.5倍、吸收强度不超过发射的75%
+        if sig_em_f > sigma_em_0 * 2.5 or A_abs_f > A_em_f * 0.75:
+            _log(f"  [调整] 拟合结果异常(σ={sig_em_f:.1f}/{sigma_em_0:.1f})，"
+                 f"回退到形态估算。")
+            A_em_f, sig_em_f = p0_c_safe[0], p0_c_safe[1]
+            A_abs_f, sig_abs_f = p0_c_safe[2], p0_c_safe[3]
+        else:
+            fit_ok = True
     except Exception as exc:
-        _log(f"  [警告] Stage-1 curve_fit 未收敛: {exc}，使用形态估算。")
+        _log(f"  [警告] curve_fit 未收敛: {exc}，使用形态估算。")
 
-    # Stage 2: 拟合自吸收成分（扣除 Stage-1 发射后求残差）
-    residual = median_I - (
-        _emission_only(vel, A_em_s1, sig_em_s1, a_em_s1, v_ctr_s1) - 1.0)
-
-    def _absorption_only(vel, A_abs, sigma_abs, a_abs):
-        u_abs = (vel - v_ctr_s1) / max(float(sigma_abs), 0.1)
-        H_abs = _voigt_real(u_abs, max(0.0, float(a_abs)))
-        return 1.0 - float(A_abs) * H_abs
-
-    # 只在峰值附近寻找吸收（中心窗口）
-    win_half = max(1, int(sig_em_s1 * 0.6 / dv_mean))
-    i_ctr = int(np.argmin(np.abs(vel - v_ctr_s1)))
-    iL2 = max(0, i_ctr - win_half)
-    iR2 = min(len(vel) - 1, i_ctr + win_half)
-    A_abs_dip = max(0.0, float(1.0 - np.min(residual[iL2:iR2 + 1])))
-    sigma_abs_0_s2 = max(2.0, sig_em_s1 / 4.0)
-
-    A_abs_f, sig_abs_f, a_abs_f = A_abs_0, sigma_abs_0_s2, 0.10  # fallback
-
-    if A_abs_dip > 0.01:
-        p0_abs = [A_abs_dip, sigma_abs_0_s2, 0.10]
-        lo_abs = [0.0, 0.5, 0.0]
-        hi_abs = [
-            min(A_em_s1, A_abs_dip * 5.0 + 0.5),
-            max(80.0, sigma_abs_0_s2 * 4.0), 2.0
-        ]
-        p0_abs_safe = [
-            float(np.clip(p0_abs[k], lo_abs[k], hi_abs[k])) for k in range(3)
-        ]
-        try:
-            popt_abs, _ = curve_fit(
-                _absorption_only,
-                vel[iL2:iR2 + 1],
-                residual[iL2:iR2 + 1],
-                p0=p0_abs_safe,
-                bounds=(lo_abs, hi_abs),
-                maxfev=10000,
-            )
-            A_abs_f, sig_abs_f, a_abs_f = popt_abs
-        except Exception as exc2:
-            _log(f"  [警告] Stage-2 curve_fit 未收敛: {exc2}，自吸收强度设为 0。")
-            A_abs_f, sig_abs_f, a_abs_f = 0.0, sigma_abs_0_s2, 0.10
-
-    A_em_f = float(A_em_s1)
-    sig_em_f = float(sig_em_s1)
-    a_em_f = float(a_em_s1)
-    A_abs_f = float(A_abs_f)
-    sig_abs_f = float(sig_abs_f)
-    a_abs_f = float(a_abs_f)
-    v_ctr_f = float(v_ctr_s1)
+    v_ctr_f = v_ctr_0
 
     _log("")
     _log("H-alpha 复合模型自动初始参数：")
-    _log(
-        f"  发射成分:  A_em={A_em_f:.4f},  σ_G={sig_em_f:.2f} km/s,  a={a_em_f:.4f}"
-    )
-    _log(
-        f"  吸收成分:  A_abs={A_abs_f:.4f}, σ_G={sig_abs_f:.2f} km/s,  a={a_abs_f:.4f}"
-    )
+    _log(f"  发射成分:  A_em={A_em_f:.4f},  σ_G={sig_em_f:.2f} km/s")
+    _log(f"  吸收成分:  A_abs={A_abs_f:.4f}, σ_G={sig_abs_f:.2f} km/s")
     _log(f"  v_center = {v_ctr_f:.3f} km/s  {'（拟合）' if fit_ok else '（估算）'}")
     _log("")
 
@@ -353,7 +352,6 @@ def auto_estimate_halpha_params(
     I_em_only = 1.0 + A_em_f * _voigt_real(u_dense_em, max(0.0, a_em_f))
     I_abs_comp = A_abs_f * _voigt_real(u_dense_abs, max(0.0, a_abs_f))
     I_fit = I_em_only - I_abs_comp
-    # 1 + (I_em-1) 即为仅发射分量（含连续谱）；吸收作为单独参考线
     I_abs_trace = 1.0 - I_abs_comp  # 仅自吸收分量的"轮廓"（最低点<1）
 
     # --- Plotly 可视化数据 ---
