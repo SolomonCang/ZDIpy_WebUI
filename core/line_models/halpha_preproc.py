@@ -173,6 +173,222 @@ def _build_median_spectrum(
     return vel_common, median_I, indiv_I, median_Isig
 
 
+# ===========================================================================
+# 模块 2：严格前向模型拟合（盘积分 χ² 最小化）
+# ===========================================================================
+
+
+def _fit_via_forward_model(
+    obsSet: list,
+    vel_rs: np.ndarray,
+    stellar_params: dict,
+    p0: list,
+    lo: list,
+    hi: list,
+    log_fn: Optional[Callable[[str], None]] = None,
+) -> tuple:
+    """通过盘积分前向模型对局域 H-alpha 线参数做最小二乘拟合。
+
+    对每次函数评估，为每个观测历元调用 ``diskIntProfAndDerivHalpha``，
+    将旋转展宽内禀地纳入正向模型，然后对各历元观测谱 Stokes I 计算总
+    chi-squared 并最小化。
+
+    与直接拟合中值盘积分谱相比，本函数得到的 ``widthGauss_em`` /
+    ``widthGauss_abs`` 是真正的局域热/湍动宽度，不包含旋转展宽。
+
+    Parameters
+    ----------
+    obsSet : list of obsProf
+        观测数组（各历元独立）。
+    vel_rs : (N_obs,) ndarray
+        各历元恒星视向速度（km/s）。
+    stellar_params : dict
+        必须包含以下键：
+        ``vel_eq_kms``, ``inc_rad``, ``period_days``, ``jdates``,
+        ``jdate_ref``, ``wl0_nm``, ``lande_g``, ``limb_dark``,
+        ``grav_dark``, ``fV``, ``inst_res``。
+        可选键：``d_omega`` (默认 0.0)、``n_rings`` (默认 15)。
+    p0 : list of 5 floats
+        初值 [A_em, sigma_em, a_em, A_abs, sigma_abs]（来自形态估算）。
+    lo, hi : list of 5 floats
+        参数下界和上界。
+    log_fn : callable, optional
+
+    Returns
+    -------
+    popt : list of 5 floats
+        最优局域参数 [A_em, sigma_em, a_em, A_abs, sigma_abs]。
+    fit_ok : bool
+    vel_model : (M,) ndarray or None
+        平均模型轮廓的速度轴（km/s，恒星静止系），用于可视化。
+    I_model_mean : (M,) ndarray or None
+        各相位前向模型 IIc 的算术平均，用于可视化。
+    """
+    from scipy.optimize import minimize  # noqa: PLC0415
+    from core.line_models.halpha import (  # noqa: PLC0415
+        lineDataHalpha as _HalphaData, diskIntProfAndDerivHalpha as _DiskInt,
+    )
+    from core.geometry.stellar_grid import starGrid  # noqa: PLC0415
+    from core.geometry.visibility import BatchVisibleGrid  # noqa: PLC0415
+    from core.geometry.differential_rotation import getCyclesClat  # noqa: PLC0415
+    from core.brightnessGeom import brightMap as _BrightMap  # noqa: PLC0415
+
+    def _log(msg: str) -> None:
+        if log_fn is not None:
+            log_fn(msg)
+
+    # --- 解包恒星参数 ---
+    vel_eq = float(stellar_params["vel_eq_kms"])
+    inc_rad = float(stellar_params["inc_rad"])
+    period = float(stellar_params["period_days"])
+    d_omega = float(stellar_params.get("d_omega", 0.0))
+    jdates = np.asarray(stellar_params["jdates"])
+    jdate_ref = float(stellar_params["jdate_ref"])
+    n_rings = int(stellar_params.get("n_rings", 15))
+    wl0 = float(stellar_params.get("wl0_nm", 656.28))
+    lande_g = float(stellar_params.get("lande_g", 1.048))
+    limb_dark = float(stellar_params.get("limb_dark", 0.0))
+    grav_dark = float(stellar_params.get("grav_dark", 0.0))
+    fV = float(stellar_params.get("fV", 1.0))
+    inst_res = float(stellar_params.get("inst_res", -1.0))
+
+    _log(f"  [前向模型] 建立格点: nRings={n_rings}, "
+         f"v_eq={vel_eq:.1f} km/s, incl={float(np.degrees(inc_rad)):.1f}°, "
+         f"P={period:.3f} d")
+
+    # --- 建立恒星表面格点（粗网格，仅用于初始化，不影响主反演）---
+    s_grid = starGrid(n_rings, verbose=0)
+    n_cells = s_grid.numPoints
+
+    # --- 建立批量可见性（所有观测相位）---
+    cycles_at_clat = getCyclesClat(period, d_omega, jdates, jdate_ref,
+                                   s_grid.clat)
+    batch_vis = BatchVisibleGrid(
+        star_grid=s_grid,
+        inclination=inc_rad,
+        cycles_at_clat=cycles_at_clat,
+        period=period,
+        dOmega=d_omega,
+    )
+
+    # --- 均匀亮度图 + 零磁场（纯 Stokes I 拟合，无需磁场）---
+    bri_map = _BrightMap(s_grid.clat, s_grid.long)  # bright = ones
+    v_mag_cart = np.zeros((3, n_cells))
+
+    # --- 为各历元构建波长网格（nm，恒星静止系）---
+    wl_syn_list = [(obs.wl - float(vel_rs[i])) / _C_KMS * wl0 + wl0
+                   for i, obs in enumerate(obsSet)]
+
+    # 预缓存噪声权重（避免在目标函数内重复 clip）
+    sig_list = [np.clip(obs.specIsig, 1e-6, None) for obs in obsSet]
+
+    # 原地可修改的 lineDataHalpha 工作对象（避免每次评估构造新对象）
+    ldata_work = _HalphaData.from_parameters(
+        wavelength_nm=wl0,
+        lande_g=lande_g,
+        limb_darkening=limb_dark,
+        gravity_darkening=grav_dark,
+        emission_strength=float(p0[0]),
+        emission_gauss_kms=float(p0[1]),
+        emission_lorentz_ratio=float(p0[2]),
+        absorption_strength=float(p0[3]),
+        absorption_gauss_kms=float(p0[4]),
+        absorption_lorentz_ratio=0.15,
+        filling_factor_V=fV,
+        instRes=inst_res,
+    )
+
+    def _update_ldata(params: list) -> None:
+        ldata_work.A_em[0] = params[0]
+        ldata_work.widthGauss_em[0] = params[1]
+        ldata_work.widthLorentz_em[0] = params[2]
+        ldata_work.A_abs[0] = params[3]
+        ldata_work.widthGauss_abs[0] = params[4]
+        ldata_work.str[0] = params[0]
+        ldata_work.widthGauss[0] = params[1]
+        ldata_work.widthLorentz[0] = params[2]
+
+    def _forward_chi2(params_raw: np.ndarray) -> float:
+        params = [
+            float(np.clip(params_raw[k], lo[k], hi[k])) for k in range(5)
+        ]
+        _update_ldata(params)
+        chi2 = 0.0
+        for i_obs, obs in enumerate(obsSet):
+            vis = batch_vis[i_obs]
+            spec = _DiskInt(vis, v_mag_cart, 0, bri_map, ldata_work, vel_eq,
+                            wl_syn_list[i_obs], 0, 0)
+            spec.convolveIGnumpy(inst_res)
+            diff = obs.specI - spec.IIc
+            chi2 += float(np.sum((diff / sig_list[i_obs])**2))
+        return chi2
+
+    # --- 运行 L-BFGS-B 优化 ---
+    bounds = [(lo[k], hi[k]) for k in range(5)]
+    fit_ok = False
+    popt = list(p0)
+    chi2_p0 = _forward_chi2(p0)
+    _log(f"  [前向模型] 初值 χ²={chi2_p0:.2f}，开始 L-BFGS-B 优化 "
+         f"({len(obsSet)} 历元 × {n_cells} 格点)…")
+
+    try:
+        result = minimize(
+            _forward_chi2,
+            p0,
+            method='L-BFGS-B',
+            bounds=bounds,
+            options={
+                'maxiter': 300,
+                'ftol': 1e-10,
+                'gtol': 1e-6
+            },
+        )
+        chi2_final = float(result.fun)
+        if chi2_final < chi2_p0 * 0.999:
+            popt = [
+                float(np.clip(result.x[k], lo[k], hi[k])) for k in range(5)
+            ]
+            fit_ok = True
+            _log(f"  [前向模型] 收敛: χ²={chi2_final:.2f}, 迭代={result.nit}")
+        else:
+            _log(f"  [前向模型] 警告: 未能改善初值 "
+                 f"(χ²={chi2_final:.2f} vs {chi2_p0:.2f})，回退形态估算。")
+    except Exception as exc:
+        _log(f"  [前向模型] 优化异常: {exc}，回退形态估算。")
+
+    # --- 构建平均模型轮廓（可视化用）---
+    vel_model: Optional[np.ndarray] = None
+    I_model_mean: Optional[np.ndarray] = None
+    try:
+        _update_ldata(popt)
+        rest_vels_m = [
+            obs.wl - float(vel_rs[i]) for i, obs in enumerate(obsSet)
+        ]
+        v_min_m = max(float(np.min(v)) for v in rest_vels_m)
+        v_max_m = min(float(np.max(v)) for v in rest_vels_m)
+        dv_m = min(
+            float(np.mean(np.abs(np.diff(v)))) for v in rest_vels_m
+            if len(v) > 1)
+        vel_model = np.arange(v_min_m, v_max_m + 0.5 * dv_m, dv_m)
+        wl_common_m = vel_model / _C_KMS * wl0 + wl0
+        I_models = []
+        for i_obs in range(len(obsSet)):
+            vis = batch_vis[i_obs]
+            spec = _DiskInt(vis, v_mag_cart, 0, bri_map, ldata_work, vel_eq,
+                            wl_common_m, 0, 0)
+            spec.convolveIGnumpy(inst_res)
+            I_models.append(spec.IIc.copy())
+        I_model_mean = np.mean(np.vstack(I_models), axis=0)
+    except Exception as exc2:
+        _log(f"  [前向模型] 可视化轮廓构建失败: {exc2}")
+
+    return popt, fit_ok, vel_model, I_model_mean
+
+
+# ===========================================================================
+# 模块 3：自动参数估算（入口）
+# ===========================================================================
+
 # ---------------------------------------------------------------------------
 # 主函数
 # ---------------------------------------------------------------------------
@@ -182,17 +398,21 @@ def auto_estimate_halpha_params(
     obsSet: list,
     vel_rs: np.ndarray,
     current_lineData,
+    stellar_params: Optional[dict] = None,
     log_fn: Optional[Callable[[str], None]] = None,
 ) -> dict:
-    """从中值发射谱估算 H-alpha 双 Voigt 初始参数。
+    """估算 H-alpha 双 Voigt 初始参数。
 
     算法步骤：
 
-    1. 对所有历元 Stokes I 在恒星静止系插值至公共速度格点。
-    2. 取中值得到代表性发射谱。
-    3. 用简单形态法估算初值（峰高、半宽、中心速度、吸收深度）。
-    4. 用 ``scipy.optimize.curve_fit`` 对双 Voigt 模型做非线性最小二乘拟合。
-    5. 构建 Plotly 格式绘图数据（个别轮廓 + 中值 + 分量 + 拟合模型）并返回。
+    1. 对所有历元 Stokes I 在恒星静止系插值至公共速度格点，取中值。
+    2. 用简单形态法估算初值（峰高、半宽、中心速度、吸收深度）。
+    3a. 若提供 ``stellar_params``（严格方案）：调用
+        ``_fit_via_forward_model``，以恒星几何正向建模盘积分轮廓，
+        最小化各历元 chi-squared，得到真正的局域热/湍动线宽。
+    3b. 否则（旧方案）：用 ``curve_fit`` 直接拟合中值盘积分谱，
+        所得线宽包含旋转展宽，对快速自转星存在系统偏差。
+    4. 构建 Plotly 格式绘图数据并返回。
 
     Parameters
     ----------
@@ -200,8 +420,15 @@ def auto_estimate_halpha_params(
         （已归一化的）观测数组。
     vel_rs : (N_obs,) ndarray
         各历元恒星视向速度（km/s）。
-    current_lineData : lineDataHalpha
-        现有线参数，用于拟合失败时的回退值。
+    current_lineData : lineDataHalpha or None
+        现有线参数（当前未使用，保留接口兼容性）。
+    stellar_params : dict, optional
+        恒星几何参数字典，启用严格前向模型拟合。
+        必须包含键：
+        ``vel_eq_kms``, ``inc_rad``, ``period_days``, ``jdates``,
+        ``jdate_ref``, ``wl0_nm``, ``lande_g``, ``limb_dark``,
+        ``grav_dark``, ``fV``, ``inst_res``。
+        可选键：``d_omega`` (默认 0.0)、``n_rings`` (默认 15)。
     log_fn : callable, optional
 
     Returns
@@ -270,68 +497,88 @@ def auto_estimate_halpha_params(
          f"v_center={v_ctr_0:.2f} km/s")
 
     # --- 非线性拟合（复合模型，v_center 固定）---
-    # 直接拟合 emission - absorption 复合模型，避免二阶段分离带来的退化
-    def _composite_model(vel, A_em, sigma_em, A_abs, sigma_abs):
+    # 直接拟合 emission - absorption 复合模型；a_em 作为自由参数以适配翼部形状
+    def _composite_model(vel, A_em, sigma_em, a_em, A_abs, sigma_abs):
         u_em = (vel - v_ctr_0) / max(float(sigma_em), 0.1)
         u_abs = (vel - v_ctr_0) / max(float(sigma_abs), 0.1)
-        H_em = _voigt_real(u_em, 0.15)
+        H_em = _voigt_real(u_em, max(0.0, float(a_em)))
         H_abs = _voigt_real(u_abs, 0.15)
         return 1.0 + float(A_em) * H_em - float(A_abs) * H_abs
 
-    p0_c = [A_em_0, sigma_em_0, A_abs_0, sigma_abs_0]
-    lo_c = [0.0, sigma_em_0 * 0.3, 0.0, 1.0]
+    p0_c = [A_em_0, sigma_em_0, 0.15, A_abs_0, sigma_abs_0]
+    lo_c = [0.0, sigma_em_0 * 0.3, 0.0, 0.0, 1.0]
     hi_c = [
         max(5.0, A_em_0 * 2.5),  # A_em: 不超过初值2.5倍
         sigma_em_0 * 2.5,  # sigma_em: 不超过初值2.5倍
+        1.5,  # a_em: Lorentz比例（0=纯Gaussian，1.5接近Lorentzian翼）
         max(A_abs_0 * 3.0, 1.0),  # A_abs: 不超过A_abs_0的3倍
-        sigma_em_0,  # sigma_abs < sigma_em（自吸收更窄）
+        sigma_em_0 * 0.9,  # sigma_abs < sigma_em（自吸收更窄）
     ]
-    p0_c_safe = [float(np.clip(p0_c[k], lo_c[k], hi_c[k])) for k in range(4)]
+    p0_c_safe = [float(np.clip(p0_c[k], lo_c[k], hi_c[k])) for k in range(5)]
 
     # 使用形态估算作为 fallback
     A_em_f, sig_em_f = p0_c_safe[0], p0_c_safe[1]
-    A_abs_f, sig_abs_f = p0_c_safe[2], p0_c_safe[3]
-    a_em_f, a_abs_f = 0.15, 0.15
+    a_em_f = 0.15
+    A_abs_f, sig_abs_f = p0_c_safe[3], p0_c_safe[4]
+    a_abs_f = 0.15
     fit_ok = False
-    try:
-        # 权重：发射峰越高/越近质心权重越大
-        sigma_noise = np.clip(median_Isig, 1e-6, None)
-        w_peak = np.clip(median_I - 1.0, 0.05, None)
-        w_center = np.exp(-0.5 * ((vel - v_ctr_0) / (sigma_em_0 * 1.5))**2)
-        sigma_eff = sigma_noise / np.clip(w_peak * w_center, 1e-4, None)
+    _vel_model: Optional[np.ndarray] = None
+    _I_model_mean: Optional[np.ndarray] = None
 
-        # 拟合窗口：质心±2σ（覆盖整个发射区域）
-        fit_mask = np.abs(vel - v_ctr_0) <= sigma_em_0 * 2.0
-        popt, _ = curve_fit(
-            _composite_model,
-            vel[fit_mask],
-            median_I[fit_mask],
-            p0=p0_c_safe,
-            bounds=(lo_c, hi_c),
-            sigma=sigma_eff[fit_mask],
-            absolute_sigma=True,
-            maxfev=30000,
-            ftol=1e-9,
-            xtol=1e-9,
-        )
-        A_em_f, sig_em_f, A_abs_f, sig_abs_f = popt
+    if stellar_params is not None:
+        # --- 严格方案：盘积分前向模型拟合 ---
+        _log("  使用严格前向模型（盘积分）估算局域线参数…")
+        try:
+            _popt, fit_ok, _vel_model, _I_model_mean = _fit_via_forward_model(
+                obsSet, vel_rs, stellar_params, p0_c_safe, lo_c, hi_c, log_fn)
+            A_em_f, sig_em_f, a_em_f, A_abs_f, sig_abs_f = _popt
+        except Exception as exc:
+            _log(f"  [前向模型] 意外错误: {exc}，回退形态估算。")
+    else:
+        # --- 旧方案：直接拟合中值盘积分谱（忽略旋转展宽）---
+        try:
+            # 权重：发射峰越高权重越大；宽松的中心衰减（2.5σ）保留翼部数据权重
+            sigma_noise = np.clip(median_Isig, 1e-6, None)
+            w_peak = np.clip(median_I - 1.0, 0.05, None)
+            w_center = np.exp(-0.5 * ((vel - v_ctr_0) / (sigma_em_0 * 2.5))**2)
+            sigma_eff = sigma_noise / np.clip(w_peak * w_center, 1e-4, None)
 
-        # 合理性检验：发射宽度不超过初值2.5倍、吸收强度不超过发射的75%
-        if sig_em_f > sigma_em_0 * 2.5 or A_abs_f > A_em_f * 0.75:
-            _log(f"  [调整] 拟合结果异常(σ={sig_em_f:.1f}/{sigma_em_0:.1f})，"
-                 f"回退到形态估算。")
-            A_em_f, sig_em_f = p0_c_safe[0], p0_c_safe[1]
-            A_abs_f, sig_abs_f = p0_c_safe[2], p0_c_safe[3]
-        else:
-            fit_ok = True
-    except Exception as exc:
-        _log(f"  [警告] curve_fit 未收敛: {exc}，使用形态估算。")
+            # 拟合窗口：质心±3.5σ（覆盖发射翼部，使优化器拟合陡翼）
+            fit_mask = np.abs(vel - v_ctr_0) <= sigma_em_0 * 3.5
+            popt, _ = curve_fit(
+                _composite_model,
+                vel[fit_mask],
+                median_I[fit_mask],
+                p0=p0_c_safe,
+                bounds=(lo_c, hi_c),
+                sigma=sigma_eff[fit_mask],
+                absolute_sigma=True,
+                maxfev=30000,
+                ftol=1e-9,
+                xtol=1e-9,
+            )
+            A_em_f, sig_em_f, a_em_f, A_abs_f, sig_abs_f = popt
+
+            # 合理性检验：发射宽度不超过初值2.5倍、吸收强度不超过发射的75%
+            if sig_em_f > sigma_em_0 * 2.5 or A_abs_f > A_em_f * 0.75:
+                _log(f"  [调整] 拟合结果异常(σ={sig_em_f:.1f}/{sigma_em_0:.1f})，"
+                     f"回退到形态估算。")
+                A_em_f, sig_em_f = p0_c_safe[0], p0_c_safe[1]
+                a_em_f = 0.15
+                A_abs_f, sig_abs_f = p0_c_safe[3], p0_c_safe[4]
+            else:
+                fit_ok = True
+        except Exception as exc:
+            _log(f"  [警告] curve_fit 未收敛: {exc}，使用形态估算。")
 
     v_ctr_f = v_ctr_0
 
+    _method = "前向模型（盘积分）" if stellar_params is not None else "直接拟合中值谱"
     _log("")
-    _log("H-alpha 复合模型自动初始参数：")
-    _log(f"  发射成分:  A_em={A_em_f:.4f},  σ_G={sig_em_f:.2f} km/s")
+    _log(f"H-alpha 复合模型自动初始参数 [{_method}]：")
+    _log(
+        f"  发射成分:  A_em={A_em_f:.4f},  σ_G={sig_em_f:.2f} km/s,  a_em={a_em_f:.3f}"
+    )
     _log(f"  吸收成分:  A_abs={A_abs_f:.4f}, σ_G={sig_abs_f:.2f} km/s")
     _log(f"  v_center = {v_ctr_f:.3f} km/s  {'（拟合）' if fit_ok else '（估算）'}")
     _log("")
@@ -346,13 +593,27 @@ def auto_estimate_halpha_params(
     }
 
     # --- 构建拟合曲线（高密度）---
+    # --- 构建拟合曲线（高密度速度网格）---
     v_dense = np.linspace(float(vel[0]), float(vel[-1]), 600)
     u_dense_em = (v_dense - v_ctr_f) / max(sig_em_f, 0.1)
     u_dense_abs = (v_dense - v_ctr_f) / max(sig_abs_f, 0.1)
+    # 局域 Voigt 分量轮廓（不含旋转展宽，用于组分示意）
     I_em_only = 1.0 + A_em_f * _voigt_real(u_dense_em, max(0.0, a_em_f))
     I_abs_comp = A_abs_f * _voigt_real(u_dense_abs, max(0.0, a_abs_f))
-    I_fit = I_em_only - I_abs_comp
+    I_fit_local = I_em_only - I_abs_comp  # 局域复合轮廓
     I_abs_trace = 1.0 - I_abs_comp  # 仅自吸收分量的"轮廓"（最低点<1）
+
+    # 决定"拟合模型"曲线来源：
+    # - 严格方案：使用前向模型平均 IIc（包含旋转展宽）
+    # - 旧方案：使用局域复合 Voigt（不含旋转展宽）
+    if _vel_model is not None and _I_model_mean is not None:
+        fit_x = _vel_model.tolist()
+        fit_y = _I_model_mean.tolist()
+        fit_label = "前向模型均值（盘积分）" if fit_ok else "前向模型均值（估算）"
+    else:
+        fit_x = v_dense.tolist()
+        fit_y = I_fit_local.tolist()
+        fit_label = "拟合模型" if fit_ok else "初始估算模型"
 
     # --- Plotly 可视化数据 ---
     traces = []
@@ -385,13 +646,14 @@ def auto_estimate_halpha_params(
         },
     })
 
-    # 发射成分（点线，橙色）
+    # 局域发射成分（点线，橙色）
+    em_label = f"局域发射分量 (A={A_em_f:.2f}, σ_local={sig_em_f:.0f} km/s)"
     traces.append({
         "type": "scatter",
         "x": v_dense.tolist(),
         "y": I_em_only.tolist(),
         "mode": "lines",
-        "name": f"发射成分 (A={A_em_f:.2f}, σ={sig_em_f:.0f} km/s)",
+        "name": em_label,
         "line": {
             "color": "#fab387",
             "width": 1.5,
@@ -399,14 +661,15 @@ def auto_estimate_halpha_params(
         },
     })
 
-    # 自吸收成分（虚线，绿色），仅当 A_abs >阈值时显示
+    # 局域自吸收成分（虚线，绿色），仅当 A_abs > 阈值时显示
     if A_abs_f > 0.01:
+        abs_label = f"局域自吸收分量 (A={A_abs_f:.2f}, σ_local={sig_abs_f:.0f} km/s)"
         traces.append({
             "type": "scatter",
             "x": v_dense.tolist(),
             "y": I_abs_trace.tolist(),
             "mode": "lines",
-            "name": f"自吸收成分 (A={A_abs_f:.2f}, σ={sig_abs_f:.0f} km/s)",
+            "name": abs_label,
             "line": {
                 "color": "#a6e3a1",
                 "width": 1.5,
@@ -414,12 +677,11 @@ def auto_estimate_halpha_params(
             },
         })
 
-    # 拟合复合模型（蓝色实线）
-    fit_label = "拟合模型" if fit_ok else "初始估算模型"
+    # 拟合/前向模型曲线（蓝色实线）
     traces.append({
         "type": "scatter",
-        "x": v_dense.tolist(),
-        "y": I_fit.tolist(),
+        "x": fit_x,
+        "y": fit_y,
         "mode": "lines",
         "name": fit_label,
         "line": {
@@ -468,6 +730,7 @@ def auto_estimate_halpha_params(
 
     return {
         "params": params,
+        "v_center": float(v_ctr_f),
         "plot_data": {
             "data": traces,
             "layout": layout

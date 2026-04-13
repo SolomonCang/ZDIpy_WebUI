@@ -334,6 +334,7 @@ code {
 
 /* Conditionally hidden field rows */
 .field-row--hidden { display: none !important; }
+.field-row--disabled { opacity: 0.45; pointer-events: none; }
 
 /* default: dark mode spinner (light-mode override in [data-theme="light"] block) */
 input[type="number"] { color-scheme: dark; }

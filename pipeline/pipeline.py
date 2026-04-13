@@ -129,6 +129,51 @@ class ZDIPipeline:
             self._log(
                 "Line model: H-alpha compound double-Voigt (weak-field approximation)"
             )
+        elif _model_type == 'ha_num':
+            from core.line_models.halpha_preproc import (
+                _build_median_spectrum, normalize_halpha_emission)
+            _use_auto = getattr(par, 'ha_num_auto_template', True)
+            _template_path = getattr(par, 'ha_num_template_file', '')
+            if _use_auto or not _template_path:
+                # 先对观测振幅做归一化，再计算中值模板，确保模板与反演数据振幅一致
+                _obs_tpl = readObs.obsProfSetInRange(par.fnames, par.velStart,
+                                                    par.velEnd, par.velRs)
+                normalize_halpha_emission(list(_obs_tpl), par.velRs,
+                                          log_fn=self._log)
+                vel_common, median_I, _indiv_I, _median_Isig = \
+                    _build_median_spectrum(_obs_tpl, par.velRs)
+                wl0 = par.line_wavelength_nm
+                wl_template = wl0 * (1.0 + vel_common / 2.99792458e5)
+                I_template = median_I
+                self._log("Line model: H-alpha numerical template "
+                          "(auto, median from amplitude-normalised observations)")
+                # 警告：auto-template = 盘积分中值轮廓（非局域本征轮廓）。
+                # 对 vsini << Hα 线宽的慢转星，Jacobian dIIc/d(bright) 极小，
+                # MEM 每步收益微小。建议 num_iterations >= 100，
+                # 或改用 halpha_compound 模式（使用真正的局域解析本征轮廓）。
+                _vsini = float(getattr(par, 'velEq', 0.0))
+                self._log(
+                    f"[ha_num WARNING] auto-template 为盘积分中值轮廓 "
+                    f"(vsini={_vsini:.1f} km/s)，Jacobian 极小，MEM 收敛慢；"
+                    f"建议 num_iterations >= 100，或改用 halpha_compound。")
+            else:
+                arr = np.loadtxt(_template_path)
+                wl_template = arr[:, 0]
+                I_template = arr[:, 1]
+                self._log(
+                    f"Line model: H-alpha numerical template (file: {_template_path})"
+                )
+            # 优先使用 Common 字段（line_lande_g / line_limb_darkening 等）
+            _g = getattr(par, 'line_lande_g',
+                         getattr(par, 'ha_num_lande_g', 1.048))
+            lineData = lineprofile.lineDataHaNum.from_arrays(
+                wl_template=wl_template,
+                I_template=I_template,
+                g=_g,
+                fV=getattr(par, 'ha_num_filling_factor_V', 1.0),
+                limb_darkening=getattr(par, 'line_limb_darkening', 0.0),
+                gravity_darkening=getattr(par, 'line_gravity_darkening', 0.0),
+            )
         else:
             lineData = lineprofile.lineData.from_parameters(
                 wavelength_nm=par.line_wavelength_nm,
@@ -148,6 +193,14 @@ class ZDIPipeline:
 
         # --- H-alpha pre-processing (only for halpha_compound model) -----
         _halpha_init_plot: dict | None = None
+        if _model_type == 'ha_num':
+            # 与 halpha_compound 相同：将各历元发射峰高度归一化到中值，
+            # 消除恒星活动引起的逐夜振幅差异，确保反演一致性。
+            from core.line_models.halpha_preproc import (  # noqa: PLC0415
+                normalize_halpha_emission, )
+            normalize_halpha_emission(list(obsSet),
+                                      par.velRs,
+                                      log_fn=self._log)
         if _model_type == 'halpha_compound':
             from core.line_models.halpha_preproc import (  # noqa: PLC0415
                 normalize_halpha_emission, auto_estimate_halpha_params,
@@ -161,10 +214,27 @@ class ZDIPipeline:
             # Step 2: 自动参数估算并更新 lineData
             if getattr(par, 'halpha_auto_init', True):
                 self._log("自动估算 Hα 复合模型初始参数…")
-                auto_result = auto_estimate_halpha_params(list(obsSet),
-                                                          par.velRs,
-                                                          lineData,
-                                                          log_fn=self._log)
+                # 构建恒星几何参数字典，启用严格前向模型拟合（盘积分 χ² 最小化）
+                _stellar_params = {
+                    "vel_eq_kms": float(par.velEq),
+                    "inc_rad": float(par.incRad),
+                    "period_days": float(par.period),
+                    "d_omega": float(par.dOmega),
+                    "jdates": par.jDates,
+                    "jdate_ref": float(par.jDateRef),
+                    "wl0_nm": float(lineData.wl0[0]),
+                    "lande_g": float(lineData.g[0]),
+                    "limb_dark": float(lineData.limbDark[0]),
+                    "grav_dark": float(lineData.gravDark[0]),
+                    "fV": float(lineData.fV[0]),
+                    "inst_res": float(par.instrumentRes),
+                }
+                auto_result = auto_estimate_halpha_params(
+                    list(obsSet),
+                    par.velRs,
+                    lineData,
+                    stellar_params=_stellar_params,
+                    log_fn=self._log)
                 # Update lineData with fitted parameters
                 fitted_p = auto_result["params"]
                 lineData.A_em[0] = fitted_p["emission_strength"]
@@ -219,11 +289,23 @@ class ZDIPipeline:
             dMagCart0 = 0.0
 
         # --- Optionally estimate line strength from EW -------------------
-        if par.estimateStrenght == 1:
+        # NOTE: EW-based estimation uses the Voigt absorption model internally
+        # and is not applicable to emission-line models (halpha_compound).
+        # For halpha_compound the line strength kL must not be auto-estimated,
+        # otherwise it converges to ~0 (trying to match a negative EW with a
+        # positive-EW absorption model), killing the Stokes V amplitude.
+        _skip_ew_fit = getattr(par, 'line_model_type',
+                               'voigt') in ('halpha_compound', 'ha_num')
+        if par.estimateStrenght == 1 and not _skip_ew_fit:
             meanEW = readObs.getObservedEW(obsSet, lineData, self.verbose)
             lineprofile.fitLineStrength(meanEW, par, listGridView, vecMagCart,
                                         dMagCart0, briMap, lineData, wlSynSet,
                                         self.verbose)
+        elif par.estimateStrenght == 1 and _skip_ew_fit:
+            self._log(
+                "[INFO] estimate_strength skipped for emission-template model "
+                "(EW-based Voigt fitting not applicable; "
+                "line strength kept at config/template value).")
 
         # --- Initialize synthetic spectra objects ------------------------
         _model_type_spec = getattr(par, 'line_model_type', 'voigt')
@@ -233,6 +315,10 @@ class ZDIPipeline:
                 wlSynSet)
         elif _model_type_spec == 'halpha_compound':
             setSynSpec = lineprofile.getAllProfDirivHalpha(
+                par, listGridView, vecMagCart, dMagCart0, briMap, lineData,
+                wlSynSet)
+        elif _model_type_spec == 'ha_num':
+            setSynSpec = lineprofile.getAllProfDirivHaNum(
                 par, listGridView, vecMagCart, dMagCart0, briMap, lineData,
                 wlSynSet)
         else:

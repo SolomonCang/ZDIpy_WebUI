@@ -1,3 +1,12 @@
+# ---------------------------------------------------------------------------
+# H-alpha 数值模板缩放模型
+# ---------------------------------------------------------------------------
+from core.line_models.ha_num import (
+    lineDataHaNum,
+    localProfileAndDerivHaNum,
+    diskIntProfAndDerivHaNum,
+    getAllProfDirivHaNum,
+)
 """core.line_models — 谱线轮廓模块（新旧架构统一出口）。
 
 新架构（推荐）

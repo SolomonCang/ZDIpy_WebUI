@@ -43,6 +43,10 @@ class _SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        # Disable caching for all frontend assets so JS/CSS changes are
+        # picked up immediately without needing a hard browser refresh.
+        if not request.url.path.startswith("/api"):
+            response.headers["Cache-Control"] = "no-store"
         return response
 
 

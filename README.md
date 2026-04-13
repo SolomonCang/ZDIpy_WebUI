@@ -39,6 +39,25 @@ The launcher will:
 - install/update dependencies from `requirements.txt`
 - start the app and open your browser at `http://127.0.0.1:7860`
 
+### 2.2 Python launcher (same bootstrap rules as `.command`)
+
+```bash
+python start_webui.py
+```
+
+This launcher applies the same startup rules as `start_webui.command`:
+
+- create `.venv` automatically (first run only)
+- install/update dependencies from `requirements.txt`
+- open your browser automatically
+- start `app.py` on port `7860` by default
+
+You can also override the port:
+
+```bash
+python start_webui.py --port 8080
+```
+
 ### 3. CLI mode (no WebUI)
 
 ```bash

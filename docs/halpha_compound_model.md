@@ -122,8 +122,18 @@ config_loader.ZDIConfig._parse()
         │ 读取 halpha_* 字段并赋给 par
         ▼
 pipeline.ZDIPipeline.run()
-        │ lineprofile.lineDataHalpha.from_parameters()
-        │ lineprofile.getAllProfDirivHalpha()
+        │
+        ├─ [halpha_normalize_emission=true]
+        │   core/line_models/halpha_preproc.normalize_halpha_emission()
+        │   → 各历元发射峰归一化到中值水平
+        │
+        ├─ [halpha_auto_init=true]
+        │   core/line_models/halpha_preproc.auto_estimate_halpha_params()
+        │   → 中值谱拟合，更新 lineData 参数
+        │
+        ├─ lineprofile.lineDataHalpha.from_parameters()
+        └─ lineprofile.getAllProfDirivHalpha()
+        │
         ▼
 core/line_models/halpha.py
   ├── lineDataHalpha          — 参数容器
@@ -146,7 +156,9 @@ core/fitting.py  (MEM 迭代)
 
 ## 3. 子模块一览
 
-本模型全部代码位于单一文件 `core/line_models/halpha.py`，内部按功能拆分为以下层次：
+本模型代码分布于以下两个文件：
+
+**`core/line_models/halpha.py`**（核心谱线模型）：
 
 | 层次 | 主要内容 | 关键符号 |
 |------|---------|----------|
@@ -155,6 +167,15 @@ core/fitting.py  (MEM 迭代)
 | 格点级 | 预计算双峰轮廓、Stokes V 导数核、盘积分 | `localProfileAndDerivHalpha` |
 | 观测级 | 完整波长网格、仪器卷积、一阶导数 | `diskIntProfAndDerivHalpha` |
 | 批量初始化 | 各相位 `diskIntProfAndDerivHalpha` 列表 | `getAllProfDirivHalpha()` |
+
+**`core/line_models/halpha_preproc.py`**（预处理与自动参数估算）：
+
+| 层次 | 主要内容 | 关键符号 |
+|------|---------|----------|
+| 辅助函数 | Humlicek Voigt 实部（归一化），用于拟合模型 | `_voigt_real()` |
+| 内部辅助 | 将各历元插值至公共速度网格并取中值 | `_build_median_spectrum()` |
+| 发射归一化 | 各历元峰高缩放到中值水平 | `normalize_halpha_emission()` |
+| 自动估算 | 中值谱形态估算 + curve_fit，返回参数和 Plotly 图 | `auto_estimate_halpha_params()` |
 
 `__init__.py` 通过以下语句将以上四个公共符号重导出至包级：
 ```python
@@ -369,13 +390,22 @@ def getAllProfDirivHalpha(
     "absorption_strength": 1.2,
     "absorption_gauss_kms": 25.0,
     "absorption_lorentz_ratio": 0.10,
-    "filling_factor_V": 1.0
+    "filling_factor_V": 1.0,
+    "halpha_normalize_emission": true,
+    "halpha_auto_init": true
   }
 }
 ```
 
 `config_loader.ZDIConfig._parse()` 将上述字段映射为 `par.halpha_*` 属性，
 由 `pipeline.ZDIPipeline.run()` 传入 `lineDataHalpha.from_parameters()` 构造线参数对象。
+
+**预处理开关说明：**
+
+| 字段 | 默认值 | 说明 |
+|------|--------|------|
+| `halpha_normalize_emission` | `true` | 将各历元发射峰高度归一化到中值水平（`normalize_halpha_emission`）；关闭可保留原始强度对比 |
+| `halpha_auto_init` | `true` | 从中值谱自动估算双 Voigt 初始参数（`auto_estimate_halpha_params`），并覆盖 config 中的手动值；关闭后使用 config 中的手动值 |
 
 `absorption_strength = 0` 可退化为单峰（纯发射），适用于弱活跃度恒星；
 `filling_factor_V < 1` 用于模拟未分辨的混合极性磁场对 Stokes V 的稀释效应。
@@ -401,7 +431,132 @@ if (par.calcDV == 1) and (par.calcDI != 1) and _model_is_linear:
 
 ---
 
-## 8. 与其他谱线模型的对比
+## 8. 自动参数估算（`halpha_preproc`）
+
+代码位置：`core/line_models/halpha_preproc.py`  
+触发条件：`config.json` 中 `halpha_auto_init = true`（默认），在 `pipeline.ZDIPipeline.run()` 构建 `lineData` 之后、组建波长网格之前执行。
+
+### 8.1 整体流程
+
+```
+ZDIPipeline.run()
+ │
+ ├─ [halpha_normalize_emission=true]
+ │   normalize_halpha_emission(obsSet, par.velRs)
+ │   → 各历元 specI/specV/specN 及对应噪声数组等比缩放
+ │
+ └─ [halpha_auto_init=true]
+     auto_estimate_halpha_params(obsSet, par.velRs, lineData)
+      ├── _build_median_spectrum()        — 插值 + 中值
+      ├── 形态法初值估算
+      ├── scipy.optimize.curve_fit        — 非线性最小二乘
+      ├── 合理性检验 + fallback
+      └── 返回 {params, plot_data, fit_ok}
+         → lineData 原地更新；_halpha_init_plot 供前端展示
+```
+
+### 8.2 发射强度归一化（`normalize_halpha_emission`）
+
+目标：消除不同历元间发射峰绝对强度的系统差异（视宁度、曝光时间变化等），
+使所有历元处于相同的量纲基准，从而提高中值谱的代表性。
+
+**算法**：
+
+1. 对每个历元 $i$ 计算超出连续谱的峰高：$h_i = \max(I_i) - 1$（若 $h_i \le 10^{-6}$ 则视为无效历元，保持不变）。
+2. 取所有有效 $h_i$ 的**中值**作为参考峰高 $h_{\rm ref} = {\rm median}(h_i)$。
+3. 各历元缩放因子 $s_i = h_{\rm ref} / h_i$（无效历元 $s_i = 1$）。
+4. 原地修改观测数组：
+
+$$
+I_i \leftarrow 1 + (I_i - 1)\,s_i, \quad
+V_i \leftarrow V_i\,s_i, \quad
+N_i \leftarrow N_i\,s_i
+$$
+
+对应噪声数组（`specIsig`、`specVsig`、`specNsig`）乘以相同 $s_i$，信噪比不变。
+
+### 8.3 中值谱构建（`_build_median_spectrum`）
+
+1. 将各历元速度轴移至恒星静止系（减去 `par.velRs[i]`）。
+2. 公共速度范围取各历元速度轴的**交集**（保守）；速度步长取各历元中的**最小值**。
+3. 对每个历元做线性插值，边界采用最近端点。
+4. 取所有历元的**逐格点中值**得到 $I_{\rm med}(v)$ 和 $\sigma_{I,\rm med}(v)$。
+
+### 8.4 形态法初值估算
+
+在中值谱上通过以下步骤得出 `curve_fit` 的初值 $p_0$：
+
+| 量 | 估算方式 |
+|----|--------|
+| $A_{\rm em,0}$ | $\max(I_{\rm med}) - 1$（峰高） |
+| $v_{\rm ctr,0}$ | 发射余量 $\text{clip}(I_{\rm med}-1, 0)$ 的加权质心（对双峰/自反转轮廓更稳健） |
+| $\sigma_{\rm em,0}$ | 半高处 FWHM 估算再除以 2.3548；最小值 5 km/s |
+| $A_{\rm em,0}$（修正） | 当观测峰偏离质心时，用 Gaussian 补偿系数 $H_{\rm peak} = e^{-\frac{1}{2}(v_{\rm offset}/\sigma_{\rm em})^2}$ 向上修正 |
+| $A_{\rm abs,0}$ | 理论无吸收强度 $1 + A_{\rm em,0}$ 与 $I_{\rm med}(v_{\rm ctr})$ 之差，取 $\max(0, \cdot)$ |
+| $\sigma_{\rm abs,0}$ | $\max(2,\, \sigma_{\rm em,0}/2)$ |
+| $a_{\rm em/abs}$ | 固定为 0.15（Lorentz/Gauss 比） |
+
+线心速度 $v_{\rm ctr,0}$ **不作为自由参数**，在整个拟合过程中保持固定。
+
+### 8.5 非线性最小二乘拟合
+
+调用 `scipy.optimize.curve_fit`，对 **4 个自由参数** $(A_{\rm em},\, \sigma_{\rm em},\, A_{\rm abs},\, \sigma_{\rm abs})$ 做有界最小二乘：
+
+**拟合模型**（`_composite_model`）：
+
+$$
+I_{\rm model}(v) = 1
+  + A_{\rm em}\,H\!\left(\frac{v - v_{\rm ctr}}{\sigma_{\rm em}},\, 0.15\right)
+  - A_{\rm abs}\,H\!\left(\frac{v - v_{\rm ctr}}{\sigma_{\rm abs}},\, 0.15\right)
+$$
+
+其中 $H(u, a) = \operatorname{Re}[w_4(a - iu)]$ 为 Humlicek Voigt 函数。
+
+**拟合窗口**：$|v - v_{\rm ctr}| \leq 2\sigma_{\rm em,0}$（覆盖主发射区域，排除翼部噪声）。
+
+**加权方案**（`sigma_eff`）：
+
+$$
+\sigma_{\rm eff}(v) = \frac{\sigma_{\rm noise}(v)}{\text{clip}(I_{\rm med}(v)-1,\,0.05,\,\infty)
+  \cdot e^{-\frac{1}{2}\left(\frac{v - v_{\rm ctr}}{1.5\,\sigma_{\rm em}}\right)^2}}
+$$
+
+即发射峰越高、越靠近线心，权重越大。
+
+**边界约束**：
+
+| 参数 | 下界 | 上界 |
+|------|------|------|
+| $A_{\rm em}$ | $0$ | $\max(5,\, 2.5\,A_{\rm em,0})$ |
+| $\sigma_{\rm em}$ | $0.3\,\sigma_{\rm em,0}$ | $2.5\,\sigma_{\rm em,0}$ |
+| $A_{\rm abs}$ | $0$ | $\max(3\,A_{\rm abs,0},\, 1.0)$ |
+| $\sigma_{\rm abs}$ | $1$ km/s | $\sigma_{\rm em,0}$（自吸收宽度 ≤ 发射宽度） |
+
+**优化参数**：`maxfev=30000`，`ftol=xtol=1e-9`，`absolute_sigma=True`。
+
+### 8.6 合理性检验与回退
+
+拟合完成后执行以下检验；任一条件失败则回退到形态估算值（`fit_ok=False`）：
+
+- $\sigma_{\rm em,fit} \leq 2.5\,\sigma_{\rm em,0}$（发射宽度不异常膨胀）
+- $A_{\rm abs,fit} \leq 0.75\,A_{\rm em,fit}$（自吸收不压倒发射）
+
+### 8.7 输出与前端交互
+
+`auto_estimate_halpha_params` 返回：
+
+| 键 | 类型 | 说明 |
+|----|------|------|
+| `params` | `dict` | 6 个参数（键名与 config `line_model` 块一致）；Lorentz 比固定为 0.15 |
+| `plot_data` | Plotly dict | 含各历元灰线、中值谱、发射分量（橙点线）、自吸收分量（绿虚线）、复合拟合（蓝实线） |
+| `fit_ok` | `bool` | `True` = `curve_fit` 收敛且通过合理性检验 |
+
+`pipeline.py` 将 `params` 直接写入 `lineData` 各字段，并发送日志标记 `[HALPHA_INIT_PLOT_READY]`，
+触发前端通过 SSE 流接收并渲染 Plotly 图表。
+
+---
+
+## 9. 与其他谱线模型的对比
 
 | 特性 | `voigt` | `unno` | `halpha_compound` |
 |------|---------|--------|--------------------|
@@ -414,7 +569,7 @@ if (par.calcDV == 1) and (par.calcDI != 1) and _model_is_linear:
 
 ---
 
-## 9. 参考文献
+## 10. 参考文献
 
 - Humlicek, J. (1982). *J. Quant. Spectrosc. Radiat. Transfer*, 27, 437 — Voigt/Faraday-Voigt 函数 w4 算法
 - Unno, W. (1956). *Publ. Astron. Soc. Japan*, 8, 108 — Milne-Eddington 偏振辐射转移解（Unno-Rachkovsky 模型基础）

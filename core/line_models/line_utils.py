@@ -101,26 +101,13 @@ def fitLineStrength(meanEquivWidObs: float,
                     verbose: int = 1) -> None:
     """通过使模型等效宽度匹配观测值，原地更新 ``lineData.str[0]``。
 
-    Parameters
-    ----------
-    meanEquivWidObs : float
-        观测平均等效宽度（来自 ``getObservedEW``）。
-    par
-        参数对象（需有 ``cycleList``, ``velEq``, ``instrumentRes``）。
-    listGridView
-        BatchVisibleGrid 或列表，支持按索引访问单相位视图。
-    vecMagCart : (3, N_cells) ndarray
-        笛卡尔磁场向量。
-    dMagCart0
-        磁场导数（``par.fitMag=0`` 时传 0）。
-    briMap
-        ``brightMap`` 对象。
-    lineData
-        ``lineData`` 对象（``str[0]`` 将被原地修改）。
-    wlSynSet : list
-        各相位的合成波长网格。
-    verbose : int, optional
-        详细输出级别（默认 1）。
+    .. warning::
+        本函数仅适用于 Voigt 吸收线模型（``lineData`` 为 ``lineData`` 或
+        ``lineDataUnno`` 类型）。对于 H-alpha 复合发射线模型
+        (``lineDataHalpha``/``halpha_compound``)，EW 为负（发射），
+        内部 Voigt 吸收模型无法匹配负 EW，会错误地将线强推至近零，
+        导致 Stokes V 振幅被彻底压制。
+        请在调用方（``ZDIPipeline``）跳过对该模型类型的调用。
     """
     from scipy.optimize import minimize_scalar  # noqa: PLC0415
 

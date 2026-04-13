@@ -13,6 +13,18 @@ import numpy as np
 c_kms = 2.99792458e5  # speed of light in km/s
 
 
+def _fget(d: dict, key: str, default: float) -> float:
+    """None-safe float fetch: returns *default* when key is missing or null."""
+    v = d.get(key)
+    return float(v) if v is not None else float(default)
+
+
+def _iget(d: dict, key: str, default: int) -> int:
+    """None-safe int fetch: returns *default* when key is missing or null."""
+    v = d.get(key)
+    return int(v) if v is not None else int(default)
+
+
 class ZDIConfig:
     """
     Unified ZDI configuration object loaded from config.json.
@@ -115,47 +127,57 @@ class ZDIConfig:
         self.initBrightFile = _r(str(bri["init_file"]))
 
         # --- Line model ----------------------------------------------------
-        self.estimateStrenght = int(line["estimate_strength"])
-        self.line_model_type = str(line.get("model_type", "voigt")).lower()
-        self.line_wavelength_nm = float(line.get("wavelength_nm", 650.0))
-        self.line_strength = float(line.get("line_strength", 0.6306))
-        self.line_gauss_width_kms = float(line.get("gauss_width_kms", 2.41))
-        self.line_lorentz_width_fraction = float(
-            line.get("lorentz_width_fraction", 0.89))
-        self.line_lande_g = float(line.get("lande_g", 1.195))
-        self.line_limb_darkening = float(line.get("limb_darkening", 0.66))
-        self.line_gravity_darkening = float(line.get("gravity_darkening", 0.5))
+        self.estimateStrenght = int(line.get("estimate_strength", 0) or 0)
+        self.line_model_type = str(line.get("model_type", "voigt")
+                                   or "voigt").lower()
+        self.line_wavelength_nm = _fget(line, "wavelength_nm", 650.0)
+        self.line_strength = _fget(line, "line_strength", 0.6306)
+        self.line_gauss_width_kms = _fget(line, "gauss_width_kms", 2.41)
+        self.line_lorentz_width_fraction = _fget(line,
+                                                 "lorentz_width_fraction",
+                                                 0.89)
+        self.line_lande_g = _fget(line, "lande_g", 1.195)
+        self.line_limb_darkening = _fget(line, "limb_darkening", 0.0)
+        self.line_gravity_darkening = _fget(line, "gravity_darkening", 0.0)
 
         # Unno-Rachkovsky specific (used only when model_type = "unno")
-        self.unno_beta = float(line.get("unno_beta", -1.0))
-        self.unno_filling_factor_I = float(
-            line.get("unno_filling_factor_I", 1.0))
-        self.unno_filling_factor_V = float(
-            line.get("unno_filling_factor_V", 1.0))
+        self.unno_beta = _fget(line, "unno_beta", -1.0)
+        self.unno_filling_factor_I = _fget(line, "unno_filling_factor_I", 1.0)
+        self.unno_filling_factor_V = _fget(line, "unno_filling_factor_V", 1.0)
 
         # H-alpha compound model specific (used only when model_type = "halpha_compound")
-        self.halpha_lande_g = float(line.get("lande_g", 1.048))
-        self.halpha_emission_strength = float(
-            line.get("emission_strength", 2.5))
-        self.halpha_emission_gauss_kms = float(
-            line.get("emission_gauss_kms", 80.0))
-        self.halpha_emission_lorentz_ratio = float(
-            line.get("emission_lorentz_ratio", 0.15))
-        self.halpha_absorption_strength = float(
-            line.get("absorption_strength", 0.0))
-        self.halpha_absorption_gauss_kms = float(
-            line.get("absorption_gauss_kms", 25.0))
-        self.halpha_absorption_lorentz_ratio = float(
-            line.get("absorption_lorentz_ratio", 0.10))
-        self.halpha_filling_factor_V = float(line.get("filling_factor_V", 1.0))
+        self.halpha_lande_g = _fget(line, "lande_g", 1.048)
+        self.halpha_emission_strength = _fget(line, "emission_strength", 2.5)
+        self.halpha_emission_gauss_kms = _fget(line, "emission_gauss_kms",
+                                               80.0)
+        self.halpha_emission_lorentz_ratio = _fget(line,
+                                                   "emission_lorentz_ratio",
+                                                   0.15)
+        self.halpha_absorption_strength = _fget(line, "absorption_strength",
+                                                0.0)
+        self.halpha_absorption_gauss_kms = _fget(line, "absorption_gauss_kms",
+                                                 25.0)
+        self.halpha_absorption_lorentz_ratio = _fget(
+            line, "absorption_lorentz_ratio", 0.10)
+        self.halpha_filling_factor_V = _fget(line, "filling_factor_V", 1.0)
 
         # H-alpha pre-processing flags (used only when model_type = "halpha_compound")
         self.halpha_normalize_emission = bool(
             line.get("halpha_normalize_emission", True))
         self.halpha_auto_init = bool(line.get("halpha_auto_init", True))
 
+        # H-alpha numerical template model (used only when model_type = "ha_num")
+        self.ha_num_template_file = str(line.get("ha_num_template_file") or "")
+        self.ha_num_auto_template = bool(line.get("ha_num_auto_template",
+                                                  True))
+        # lande_g/limb_darkening/gravity_darkening shared with Common (line_lande_g etc.)
+        self.ha_num_filling_factor_V = _fget(
+            line, "ha_num_filling_factor_V",
+            line.get("filling_factor_V")
+            if line.get("filling_factor_V") is not None else 1.0)
+
         # Validate line model type
-        valid_line_model_types = ("voigt", "unno", "halpha_compound")
+        valid_line_model_types = ("voigt", "unno", "halpha_compound", "ha_num")
         if self.line_model_type not in valid_line_model_types:
             raise ValueError(
                 f"Invalid line model type: {self.line_model_type!r}. "

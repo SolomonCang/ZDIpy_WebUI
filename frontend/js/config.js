@@ -69,9 +69,22 @@ const CONFIG_SCHEMA = [
           { value: 'voigt',            label: 'Voigt  (weak-field approximation)' },
           { value: 'unno',             label: 'Unno-Rachkovsky  (Milne-Eddington, full polarised RT)' },
           { value: 'halpha_compound',  label: 'H-alpha compound double-Voigt  (weak-field)' },
+          { value: 'ha_num',           label: 'H-alpha numerical template (scaled)' },
         ],
-        tooltip: 'Spectral line model: "Voigt" uses the weak-field approximation (fast). "Unno-Rachkovsky" solves full polarised RT. "H-alpha compound" models emission + absorption double-Voigt for H\u03b1 profiles.',
+        tooltip: 'Spectral line model: "Voigt" uses the weak-field approximation (fast). "Unno-Rachkovsky" solves full polarised RT. "H-alpha compound" models emission + absorption double-Voigt for H\u03b1 profiles. "H-alpha numerical" uses a direct numerical template for I(λ) with scaling.',
       },
+            // ── H-alpha numerical template specific parameters ──
+      { key: '_ha_num_heading', type: 'subheader', label: 'Hα 数值模板模型参数',
+        visibleWhen: { key: 'model_type', value: 'ha_num' } },
+      { key: 'ha_num_auto_template', label: '自动使用观测中值轮廓作为模板', type: 'checkbox',
+        visibleWhen: { key: 'model_type', value: 'ha_num' },
+        tooltip: '勾选后自动从观测数据计算中值 Stokes I 轮廓作为数值模板，无需手动指定文件。' },
+      { key: 'ha_num_template_file', label: '数值模板文件（I(λ)，可选）', type: 'text',
+        visibleWhen: { key: 'model_type', value: 'ha_num' },
+        tooltip: '用于反演的Hα数值轮廓模板文件路径，需为两列（λ, I）ASCII表。勾选上方选项后此字段将被忽略。' },
+      { key: 'ha_num_filling_factor_V', label: 'Stokes V 填充因子 f_V',  type: 'number', min: 0, step: 0.01,
+        visibleWhen: { key: 'model_type', value: 'ha_num' },
+        tooltip: '应用于 Hα 数值模板 Stokes V 的填充因子。' },
       // ── Common parameters ──
       { key: 'estimate_strength',       label: 'Auto-estimate line strength',         type: 'checkbox', tooltip: 'Automatically estimate the LSD line strength from the observed profiles instead of using the fixed value below.' },
       { key: 'wavelength_nm',           label: 'Wavelength  (nm)',                    type: 'number', step: 0.001,  tooltip: 'Central wavelength of the LSD line (nm). Used for computing the Zeeman splitting in Stokes V.' },
@@ -374,10 +387,34 @@ async function saveConfig() {
 // ---------------------------------------------------------------------------
 // Initialise
 // ---------------------------------------------------------------------------
+
+/**
+ * ha_num: 当"自动使用观测中值"checkbox 勾选时，禁用并灰化文件路径输入框。
+ * 在 _buildForm / loadConfig 之后调用。
+ */
+function _setupHaNumAutoTemplate() {
+  const chk = document.getElementById('field-line_model-ha_num_auto_template');
+  const fileRow = document.getElementById('field-line_model-ha_num_template_file')
+                    ?.closest('.field-row');
+  const fileInput = document.getElementById('field-line_model-ha_num_template_file');
+  if (!chk || !fileInput) return;
+
+  function _sync() {
+    const auto = chk.checked;
+    fileInput.disabled = auto;
+    if (fileRow) fileRow.classList.toggle('field-row--disabled', auto);
+  }
+
+  chk.addEventListener('change', _sync);
+  _sync();
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   _buildForm();
-  loadConfig();
+  loadConfig().then(() => _setupHaNumAutoTemplate());
 
-  document.getElementById('cfg-load-btn')?.addEventListener('click', loadConfig);
+  document.getElementById('cfg-load-btn')?.addEventListener('click', () => {
+    loadConfig().then(() => _setupHaNumAutoTemplate());
+  });
   document.getElementById('cfg-save-btn')?.addEventListener('click', saveConfig);
 });

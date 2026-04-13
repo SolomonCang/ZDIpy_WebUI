@@ -52,6 +52,8 @@ ZDIpy_WebUI/
 │   │   ├── voigt.py        # VoigtLineModel — Humlicek Voigt 弱场模型
 │   │   ├── profile.py      # lineData / diskIntProfAndDeriv / getAllProfDiriv（向后兼容）
 │   │   ├── unno.py         # Unno-Rachkovsky（Milne-Eddington，完整偏振辐射转移）
+│   │   ├── halpha.py       # H-alpha 双 Voigt 复合线模型（弱场近似）
+│   │   ├── halpha_preproc.py # H-alpha 预处理：发射强度归一化 + 双 Voigt 参数自动估算
 │   │   ├── disk_integration.py # disk_integrate — 盘积分通用实现
 │   │   └── line_utils.py   # fitLineStrength / limbDarkening 等辅助函数
 │   ├── mem/                # MEM 优化引擎子包
@@ -92,7 +94,12 @@ ZDIpy_WebUI/
 │   ├── test_geometry.py
 │   └── test_mag_brightness.py
 └── docs/
-    └── MEM.md              # MEM 算法说明
+    ├── MEM.md                      # MEM 算法说明
+    ├── halpha_compound_model.md    # H-alpha 双 Voigt 复合模型设计文档
+    ├── brightness_map.md           # 亮度图说明
+    ├── line_models.md              # 谱线模型总览
+    ├── magnetic_map.md             # 磁场图说明
+    └── stellar_geometry.md         # 恒星几何说明
 ```
 
 ---
@@ -160,18 +167,28 @@ python app.py --cli [--config config.json] [--forward-only] [--verbose 1]
 | `brightness.entropy_form`                | 1/2                                            | 熵公式：1 = 传统图像熵，2 = 填充因子熵                                |
 | `brightness.default_bright`              | float                                          | 亮度默认值                                                            |
 | `brightness.max_bright`                  | float                                          | 亮度上限                                                              |
-| `line_model.model_type`                  | `"voigt"` / `"unno"`                       | 谱线模型选择（默认 voigt）                                            |
-| `line_model.estimate_strength`           | 0/1                                            | 从等效宽度自动估计谱线强度                                            |
+| `line_model.model_type`                  | `"voigt"` / `"unno"` / `"halpha_compound"` | 谱线模型选择（默认 voigt）                                            |
+| `line_model.estimate_strength`           | 0/1                                            | 从等效宽度自动估计谱线强度（仅 voigt/unno）                           |
 | `line_model.wavelength_nm`               | float                                          | 中心波长（nm）                                                        |
-| `line_model.line_strength`               | float                                          | 谱线强度（深度）                                                      |
-| `line_model.gauss_width_kms`             | float                                          | 高斯 Doppler 宽度（km/s）                                             |
-| `line_model.lorentz_width_fraction`      | float                                          | Lorentz 宽度因子 γ/σ                                                |
-| `line_model.lande_g`                     | float                                          | 有效 Landé g 因子                                                    |
+| `line_model.line_strength`               | float                                          | 谱线强度（深度，voigt/unno）                                          |
+| `line_model.gauss_width_kms`             | float                                          | 高斯 Doppler 宽度（km/s，voigt/unno）                                 |
+| `line_model.lorentz_width_fraction`      | float                                          | Lorentz 宽度因子 γ/σ（voigt/unno）                                  |
+| `line_model.lande_g`                     | float                                          | 有效 Landé g 因子（voigt/unno 使用此处；halpha_compound 使用下方专用键）|
 | `line_model.limb_darkening`              | float                                          | 临边昏暗系数 ε                                                       |
 | `line_model.gravity_darkening`           | float                                          | 重力昏暗系数                                                          |
 | `line_model.unno_beta`                   | float                                          | UR 模型 Planck 坡度 β（≤0 = 由 limb_darkening 自动推导）            |
 | `line_model.unno_filling_factor_I`       | float                                          | UR 模型 Stokes I 填充因子 f_I                                         |
 | `line_model.unno_filling_factor_V`       | float                                          | UR 模型 Stokes V 填充因子 f_V                                         |
+| `line_model.lande_g`（halpha）            | float                                          | H-alpha 有效 Landé g（默认 1.048）                                   |
+| `line_model.emission_strength`           | float                                          | H-alpha 宽发射成分峰值幅度 A_em（连续谱单位）                         |
+| `line_model.emission_gauss_kms`          | float                                          | H-alpha 发射成分高斯宽度（km/s）                                      |
+| `line_model.emission_lorentz_ratio`      | float                                          | H-alpha 发射成分 Lorentz/Gauss 宽度比                                 |
+| `line_model.absorption_strength`         | float                                          | H-alpha 窄自吸收成分深度 A_abs（连续谱单位，0 = 禁用）                |
+| `line_model.absorption_gauss_kms`        | float                                          | H-alpha 吸收成分高斯宽度（km/s）                                      |
+| `line_model.absorption_lorentz_ratio`    | float                                          | H-alpha 吸收成分 Lorentz/Gauss 宽度比                                 |
+| `line_model.filling_factor_V`            | float                                          | H-alpha Stokes V 填充因子（默认 1.0）                                 |
+| `line_model.halpha_normalize_emission`   | bool                                           | 是否对各历元发射峰高度做归一化（halpha_compound）                     |
+| `line_model.halpha_auto_init`            | bool                                           | 是否自动从观测平均谱拟合双 Voigt 初始参数（halpha_compound）          |
 | `instrument.spectral_resolution`         | float                                          | 仪器分辨率 R                                                          |
 | `velocity_grid.vel_start_kms`            | float                                          | 速度网格左端（km/s）                                                  |
 | `velocity_grid.vel_end_kms`              | float                                          | 速度网格右端（km/s）                                                  |
@@ -219,7 +236,7 @@ python app.py --cli [--config config.json] [--forward-only] [--verbose 1]
 
 ### 5.4 谱线轮廓（`core/line_models/`）
 
-原 `lineprofileVoigt.py` 已重构为子包；shim 文件保留向后兼容。支持两种模型，通过 `config.json` 的 `line_model.model_type` 选择。
+原 `lineprofileVoigt.py` 已重构为子包；shim 文件保留向后兼容。支持三种模型，通过 `config.json` 的 `line_model.model_type` 选择。
 
 **Voigt 弱场模型（默认）**
 
@@ -239,7 +256,23 @@ python app.py --cli [--config config.json] [--forward-only] [--verbose 1]
 | `diskIntProfAndDerivUnno`  | UR 盘积分轮廓及全部一阶导数                  |
 | `getAllProfDirivUnno(...)` | 批量初始化所有相位的 UR 盘积分对象           |
 
-`pipeline.py` 根据 `par.line_model_type` 在两条路径间切换，其余代码无需感知。
+**H-alpha 双 Voigt 复合模型（弱场近似）**
+
+将 H-alpha 轮廓建模为 **宽发射成分 + 窄自吸收成分** 的双 Voigt 叠加：
+
+$$I(\lambda) = 1 + A_\text{em} \cdot H_\text{em}(\lambda) - A_\text{abs} \cdot H_\text{abs}(\lambda)$$
+$$V(\lambda) = -\Delta\lambda_Z \cdot B_\text{LOS} \cdot [A_\text{em} \cdot \partial H_\text{em}/\partial\lambda - A_\text{abs} \cdot \partial H_\text{abs}/\partial\lambda]$$
+
+| 类/函数                                  | 职责                                                                              |
+| ---------------------------------------- | --------------------------------------------------------------------------------- |
+| `lineDataHalpha` (halpha.py)           | 参数容器；携带 A_em/A_abs、各成分高斯/Lorentz 宽度、Landé g、填充因子           |
+| `localProfileAndDerivHalpha`           | 单格点预计算轮廓及导数核（类似 `localProfileAndDeriv`）                         |
+| `diskIntProfAndDerivHalpha`            | 盘积分轮廓及全部一阶导数                                                          |
+| `getAllProfDirivHalpha(...)`           | 批量初始化所有相位的 H-alpha 盘积分对象                                           |
+| `normalize_halpha_emission` (halpha_preproc.py) | 各历元发射峰高度归一化至中值水平（in-place 修改 obsSet）                 |
+| `auto_estimate_halpha_params` (halpha_preproc.py) | 从观测中值谱自动拟合双 Voigt 初始参数，返回拟合结果及 Plotly 预览图 dict |
+
+`pipeline.py` 根据 `par.line_model_type` 在三条路径间切换，其余代码无需感知。
 
 ### 5.5 主拟合函数（`core/fitting.py`）
 
@@ -304,10 +337,16 @@ ZDIPipeline.run()
   ├─ 3. par.calcCycles()         → 从儒略日计算旋转相位
   │
   ├─ 4. 根据 par.line_model_type 构建谱线参数：
-  │       "voigt" → lineData.from_parameters(...)
-  │       "unno"  → lineDataUnno.from_parameters(..., beta, fI, fV)
+  │       "voigt"           → lineData.from_parameters(...)
+  │       "unno"            → lineDataUnno.from_parameters(..., beta, fI, fV)
+  │       "halpha_compound" → lineDataHalpha.from_parameters(..., A_em, A_abs, ...)
   ├─ 5. readObs.obsProfSetInRange(fnames, ...)    → 加载并截取观测数据
   ├─ 6. readObs.getWavelengthGrid()              → 构建速度网格
+  │
+  ├─ 6a. [仅 halpha_compound] H-alpha 预处理（在波长网格构建之前）：
+  │        ├─ halpha_normalize_emission()         → 统一各历元发射峰高度至中值
+  │        └─ auto_estimate_halpha_params()       → 拟合双 Voigt 更新 lineData 初值
+  │                └─ 生成 Plotly 预览图，并广播 [HALPHA_INIT_PLOT_READY] 日志标记
   │
   ├─ 7. geometry.starGrid(nRings, ...)           → 构建恒星表面网格
   ├─ 8. magneticGeom.SetupMagSphHarmonics(...)   → 初始化磁场球谐展开
@@ -318,7 +357,8 @@ ZDIPipeline.run()
   ├─ 12. magGeom.getAllMagDerivsCart()            → 计算 Jacobian（fitMag=1）
   │
   ├─ 13. [可选] fitLineStrength()                → 从等效宽度自动估计谱线强度
-  ├─ 14. getAllProfDiriv() 或 getAllProfDirivUnno() → 所有相位合成谱和导数
+  ├─ 14. getAllProfDiriv() 或 getAllProfDirivUnno() 或 getAllProfDirivHalpha()
+  │        → 所有相位合成谱和导数（路径由 line_model_type 决定）
   │
   ├─ 15. memSimple.constantsMEM()                → MEM 维度常数
   ├─ 16. memSimple.packDataVector()              → 数据向量 (Data, sig2)
@@ -436,7 +476,8 @@ ZDIPipeline.run()
 │                    │ magneticGeom            │              │
 │                    │ line_models/            │              │
 │                    │   ├ Voigt (默认)         │              │
-│                    │   └ Unno-Rachkovsky      │              │
+│                    │   ├ Unno-Rachkovsky      │              │
+│                    │   └ Hα 双 Voigt 复合     │              │
 │                    │ fitting                 │              │
 │                    │ readObs / observations  │              │
 │                    │ light_curve             │              │
