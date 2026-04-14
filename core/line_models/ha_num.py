@@ -168,7 +168,8 @@ class diskIntProfAndDerivHaNum:
 
         def _pad_conv(arr):
             padded = np.concatenate(
-                [np.repeat(arr[:1], pad), arr, np.repeat(arr[-1:], pad)])
+                [np.repeat(arr[:1], pad), arr,
+                 np.repeat(arr[-1:], pad)])
             return np.convolve(padded, prof_g, mode="valid")
 
         self.IIc = _pad_conv(self.IIc)
@@ -179,10 +180,11 @@ class diskIntProfAndDerivHaNum:
             self.dIIc = np.asarray([_pad_conv(row) for row in self.dIIc])
         if self.calcDV == 1:
             # dVIc shape: (n_comp, n_cells, n_vel)
-            self.dVIc = np.asarray(
-                [[_pad_conv(row) for row in comp] for comp in self.dVIc])
+            self.dVIc = np.asarray([[_pad_conv(row) for row in comp]
+                                    for comp in self.dVIc])
         if self.calcDI == 1 and self.calcDV == 1:
             self.dVdBri = np.asarray([_pad_conv(row) for row in self.dVdBri])
+
 
 def getAllProfDirivHaNum(par, list_grid_view, vec_mag_cart, d_mag_cart0,
                          bri_map, ldata, wl_syn_set):

@@ -46,7 +46,9 @@ def _run_case(config_path,
     print(f"  halpha_filling_factor_V = {par.halpha_filling_factor_V}")
     print(f"  chi2_scale_V            = {getattr(par, 'chiScaleV', 1.0)}")
     print(f"  num_iterations          = {par.numIterations}")
-    print(f"  halpha_auto_init        = {getattr(par, 'halpha_auto_init', True)}")
+    print(
+        f"  halpha_auto_init        = {getattr(par, 'halpha_auto_init', True)}"
+    )
 
     result = ZDIPipeline(par, verbose=0).run()
 

@@ -11,7 +11,6 @@ import threading
 import webbrowser
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parent
 VENV_DIR = ROOT / ".venv"
 VENV_PYTHON = VENV_DIR / "bin" / "python"
@@ -42,7 +41,9 @@ def _ensure_virtualenv() -> None:
     if VENV_DIR.is_dir():
         return
     print("Creating virtual environment...")
-    subprocess.check_call([sys.executable, "-m", "venv", str(VENV_DIR)], cwd=ROOT)
+    subprocess.check_call([sys.executable, "-m", "venv",
+                           str(VENV_DIR)],
+                          cwd=ROOT)
 
 
 def _relaunch_inside_venv() -> None:
@@ -51,8 +52,11 @@ def _relaunch_inside_venv() -> None:
     env = os.environ.copy()
     env[RELAUNCH_ENV] = "1"
     raise SystemExit(
-        subprocess.call([str(VENV_PYTHON), str(Path(__file__).resolve()), *sys.argv[1:]], cwd=ROOT, env=env)
-    )
+        subprocess.call(
+            [str(VENV_PYTHON),
+             str(Path(__file__).resolve()), *sys.argv[1:]],
+            cwd=ROOT,
+            env=env))
 
 
 def _install_dependencies() -> None:
@@ -88,7 +92,8 @@ def _run_app(port: int, share: bool) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Bootstrap the ZDIpy WebUI environment and launch the frontend.",
+        description=
+        "Bootstrap the ZDIpy WebUI environment and launch the frontend.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
@@ -131,7 +136,8 @@ if __name__ == "__main__":
     try:
         exit_code = main()
     except subprocess.CalledProcessError as exc:
-        print(f"Launcher failed with exit code {exc.returncode}.", file=sys.stderr)
+        print(f"Launcher failed with exit code {exc.returncode}.",
+              file=sys.stderr)
         exit_code = exc.returncode
     except KeyboardInterrupt:
         print("\nLauncher interrupted.")

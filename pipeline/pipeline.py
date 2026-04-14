@@ -137,25 +137,26 @@ class ZDIPipeline:
             if _use_auto or not _template_path:
                 # 先对观测振幅做归一化，再计算中值模板，确保模板与反演数据振幅一致
                 _obs_tpl = readObs.obsProfSetInRange(par.fnames, par.velStart,
-                                                    par.velEnd, par.velRs)
-                normalize_halpha_emission(list(_obs_tpl), par.velRs,
+                                                     par.velEnd, par.velRs)
+                normalize_halpha_emission(list(_obs_tpl),
+                                          par.velRs,
                                           log_fn=self._log)
                 vel_common, median_I, _indiv_I, _median_Isig = \
                     _build_median_spectrum(_obs_tpl, par.velRs)
                 wl0 = par.line_wavelength_nm
                 wl_template = wl0 * (1.0 + vel_common / 2.99792458e5)
                 I_template = median_I
-                self._log("Line model: H-alpha numerical template "
-                          "(auto, median from amplitude-normalised observations)")
+                self._log(
+                    "Line model: H-alpha numerical template "
+                    "(auto, median from amplitude-normalised observations)")
                 # 警告：auto-template = 盘积分中值轮廓（非局域本征轮廓）。
                 # 对 vsini << Hα 线宽的慢转星，Jacobian dIIc/d(bright) 极小，
                 # MEM 每步收益微小。建议 num_iterations >= 100，
                 # 或改用 halpha_compound 模式（使用真正的局域解析本征轮廓）。
                 _vsini = float(getattr(par, 'velEq', 0.0))
-                self._log(
-                    f"[ha_num WARNING] auto-template 为盘积分中值轮廓 "
-                    f"(vsini={_vsini:.1f} km/s)，Jacobian 极小，MEM 收敛慢；"
-                    f"建议 num_iterations >= 100，或改用 halpha_compound。")
+                self._log(f"[ha_num WARNING] auto-template 为盘积分中值轮廓 "
+                          f"(vsini={_vsini:.1f} km/s)，Jacobian 极小，MEM 收敛慢；"
+                          f"建议 num_iterations >= 100，或改用 halpha_compound。")
             else:
                 arr = np.loadtxt(_template_path)
                 wl_template = arr[:, 0]
