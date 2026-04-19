@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LSD Interactive Fit</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.plot.ly/plotly-2.35.2.min.js" charset="utf-8"></script>
+</head>
+<body>
+  <div class="app-container">
+    <!-- Sidebar: Controls -->
+    <div class="sidebar">
+      <h1>LSD Stokes I — Interactive Fit</h1>
+
+      <!-- Model selector -->
+      <h2>Model Type</h2>
+      <div class="model-selector" id="model-selector">
+        <button class="model-btn active" data-model="voigt">Voigt</button>
+        <button class="model-btn" data-model="unno">Unno-Rachkovsky</button>
+      </div>
+
+      <!-- Common sliders -->
+      <h2>Line Parameters</h2>
+      <div class="slider-group" id="sliders">
+        <!-- Populated by JS -->
+      </div>
+
+      <!-- Buttons -->
+      <div class="btn-row">
+        <button class="btn btn-accent" id="btn-auto-estimate" title="Auto-estimate line strength by minimising RMS">Auto d</button>
+        <button class="btn" id="btn-reset">Reset</button>
+        <button class="btn" id="btn-copy">Copy Params</button>
+        <button class="btn btn-primary" id="btn-snapshot">Save Snapshot</button>
+        <button class="btn btn-warn" id="btn-save-config" title="Write current parameters to config.json">Save to Config</button>
+      </div>
+
+      <!-- Status -->
+      <div class="status-bar" id="status-bar"></div>
+
+      <!-- Current params -->
+      <h2>Current Parameters</h2>
+      <div class="params-panel" id="params-panel"></div>
+    </div>
+
+    <!-- Main area: Plot -->
+    <div class="main-area">
+      <div id="plot-container"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

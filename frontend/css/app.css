@@ -445,6 +445,23 @@ input[type="number"] { color-scheme: dark; }
   box-shadow: var(--shadow-focus);
 }
 
+/* ── Input + inline action button group ─────────────────── */
+.field-input-group {
+  display: flex;
+  gap: 6px;
+  align-items: stretch;
+}
+.field-input-group .field-input {
+  flex: 1;
+  min-width: 0;
+}
+.field-input-group .btn-estimate-vsini {
+  flex-shrink: 0;
+  padding: 6px 10px;
+  font-size: .75rem;
+  line-height: 1;
+}
+
 .field-select { cursor: pointer; }
 .field-select option { background: var(--bg-card); }
 

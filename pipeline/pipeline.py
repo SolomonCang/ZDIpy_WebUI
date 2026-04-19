@@ -34,7 +34,6 @@ class ZDIPipeline:
         When set, the pipeline will stop gracefully at the next iteration
         boundary and return early with ``cancelled=True``.
     """
-
     def __init__(
         self,
         par,
@@ -100,6 +99,7 @@ class ZDIPipeline:
                 beta=getattr(par, 'unno_beta', -1.0),
                 filling_factor_I=getattr(par, 'unno_filling_factor_I', 1.0),
                 filling_factor_V=getattr(par, 'unno_filling_factor_V', 1.0),
+                macro_turb_kms=getattr(par, 'unno_macro_turb_kms', 0.0),
             )
             self._log(
                 "Line model: Unno-Rachkovsky (Milne-Eddington, full polarised RT)"
@@ -267,6 +267,24 @@ class ZDIPipeline:
         # --- Initialize stellar grid --------------------------------------
         sGrid = geometryStellar.starGrid(par.nRingsStellarGrid, par.period,
                                          par.mass, par.radius, self.verbose)
+
+        # Compute critical-velocity diagnostics from the constructed grid.
+        # fracOmegaCrit = Omega/Omega_break (wo); available for both spherical
+        # (wo ≈ 0) and oblate Roche models.
+        _wo = float(sGrid.fracOmegaCrit)
+        if _wo > 1e-7 and par.mass > 0.0 and par.radius > 0.0:
+            import math as _math
+            _G = 6.67408e-11  # m^3 kg^-1 s^-2
+            _Msun = 1.98892e30  # kg
+            _Rsun = 6.955e8  # m
+            _Omega_break = (_math.sqrt((8.0 / 27.0) * _G * (par.mass * _Msun) /
+                                       (par.radius * _Rsun)**3))
+            _v_crit_kms = _Omega_break * par.radius * _Rsun / 1000.0
+            _obl = (3.0 / _wo) * _math.cos(
+                (_math.pi + _math.acos(min(1.0, _wo))) / 3.0)
+        else:
+            _v_crit_kms = None
+            _obl = 1.0
 
         # --- Initialize magnetic geometry ---------------------------------
         magGeom = magneticGeom.SetupMagSphHarmoics(sGrid, par.initMagFromFile,
@@ -605,6 +623,12 @@ class ZDIPipeline:
                 (lc_obs_flux.tolist() if lc_obs_flux is not None else []),
                 "mag_energy":
                 mag_energy,
+                "frac_omega_crit":
+                _wo,
+                "oblateness_req_rp":
+                float(_obl),
+                "v_crit_kms":
+                (float(_v_crit_kms) if _v_crit_kms is not None else None),
             },
         )
         return result

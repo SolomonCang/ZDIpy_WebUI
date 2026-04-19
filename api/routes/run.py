@@ -12,7 +12,6 @@ from typing import AsyncGenerator
 
 class _StateLogHandler(logging.Handler):
     """Append zdipy log records to the shared run state (SSE stream)."""
-
     def emit(self, record: logging.LogRecord) -> None:
         from api.state import append_log  # deferred to avoid circular import
         append_log(self.format(record))
@@ -45,7 +44,6 @@ _stop_event = threading.Event()
 # Background run thread
 # ---------------------------------------------------------------------------
 def _run_thread(config_path: str, forward_only: bool, verbose: int) -> None:
-
     def _callback(msg: str) -> None:
         append_log(msg)
 
@@ -62,15 +60,32 @@ def _run_thread(config_path: str, forward_only: bool, verbose: int) -> None:
         # Extract H-alpha init plot before serialising the full result
         if result.halpha_init_plot is not None:
             update_state(halpha_init_plot=result.halpha_init_plot)
+        _wo = result.metadata.get("frac_omega_crit", 0.0) or 0.0
+        _obl = result.metadata.get("oblateness_req_rp", 1.0) or 1.0
+        _vcrit = result.metadata.get("v_crit_kms")
         _summary = {
-            "iterations": result.iterations,
-            "entropy": f"{result.entropy:.5f}",
-            "chi2": f"{result.chi2:.6f}",
-            "test": f"{result.test:.6f}",
-            "converged": result.converged,
-            "mean_bright": result.metadata.get("mean_bright"),
-            "mean_bright_diff": result.metadata.get("mean_bright_diff"),
-            "mean_mag": f"{result.metadata.get('mean_mag', 0.0):.4f} G",
+            "iterations":
+            result.iterations,
+            "entropy":
+            f"{result.entropy:.5f}",
+            "chi2":
+            f"{result.chi2:.6f}",
+            "test":
+            f"{result.test:.6f}",
+            "converged":
+            result.converged,
+            "mean_bright":
+            result.metadata.get("mean_bright"),
+            "mean_bright_diff":
+            result.metadata.get("mean_bright_diff"),
+            "mean_mag":
+            f"{result.metadata.get('mean_mag', 0.0):.4f} G",
+            "Omega/Omega_crit":
+            f"{_wo:.4f}  ({_wo*100:.1f}% of breakup)",
+            "Req/Rp (oblateness)":
+            f"{_obl:.4f}",
+            "v_crit (equatorial)":
+            (f"{_vcrit:.1f} km/s" if _vcrit else "N/A (no mass/radius)"),
         }
         update_state(status="done", result=result.to_serializable())
         extend_log([
@@ -132,7 +147,6 @@ def get_status() -> RunStatus:
 @router.get("/run/stream")
 async def stream_log() -> StreamingResponse:
     """Server-Sent Events endpoint: streams log lines in real time."""
-
     async def _generator() -> AsyncGenerator[str, None]:
         from api.state import get_state  # noqa: PLC0415
         sent = 0

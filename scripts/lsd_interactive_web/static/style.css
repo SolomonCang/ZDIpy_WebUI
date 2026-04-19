@@ -1,0 +1,292 @@
+/* LSD Interactive Fit — Dark theme CSS (Catppuccin Mocha inspired) */
+
+:root {
+  --bg: #1e1e2e;
+  --surface: #181825;
+  --surface1: #313244;
+  --surface2: #45475a;
+  --overlay: #585b70;
+  --text: #cdd6f4;
+  --text-sub: #a6adc8;
+  --blue: #89b4fa;
+  --red: #f38ba8;
+  --teal: #89dceb;
+  --pink: #f5c2e7;
+  --green: #a6e3a1;
+  --yellow: #f9e2af;
+  --font: 'Inter', 'Noto Sans', system-ui, -apple-system, sans-serif;
+  --mono: 'SF Mono', 'Fira Code', 'Consolas', monospace;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+html, body {
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  overflow: hidden;
+}
+
+/* ---------- Layout ---------- */
+.app-container {
+  display: flex;
+  height: 100vh;
+}
+
+.sidebar {
+  width: 340px;
+  min-width: 300px;
+  background: var(--surface);
+  border-right: 1px solid var(--surface2);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 16px;
+  gap: 12px;
+}
+
+.main-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 12px;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* ---------- Header ---------- */
+.sidebar h1 {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--blue);
+  margin-bottom: 4px;
+}
+
+.sidebar h2 {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-sub);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+
+/* ---------- Model selector ---------- */
+.model-selector {
+  display: flex;
+  gap: 4px;
+  background: var(--surface1);
+  border-radius: 8px;
+  padding: 3px;
+}
+
+.model-btn {
+  flex: 1;
+  padding: 6px 0;
+  text-align: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-sub);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.model-btn.active {
+  background: var(--blue);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+.model-btn:hover:not(.active) {
+  background: var(--surface2);
+  color: var(--text);
+}
+
+/* ---------- Slider groups ---------- */
+.slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.slider-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.slider-row.ur-only {
+  display: none;
+}
+
+.slider-row.ur-only.visible {
+  display: flex;
+}
+
+.slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.slider-label {
+  font-size: 12px;
+  color: var(--text-sub);
+  font-weight: 500;
+}
+
+.slider-value {
+  font-size: 12px;
+  color: var(--pink);
+  font-family: var(--mono);
+  min-width: 60px;
+  text-align: right;
+}
+
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  background: var(--surface1);
+  border-radius: 3px;
+  outline: none;
+  cursor: pointer;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--teal);
+  cursor: pointer;
+  border: 2px solid var(--surface);
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--teal);
+  cursor: pointer;
+  border: 2px solid var(--surface);
+}
+
+/* ---------- Buttons ---------- */
+.btn-row {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.btn {
+  padding: 6px 14px;
+  border: 1px solid var(--surface2);
+  border-radius: 6px;
+  background: var(--surface1);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.btn:hover {
+  background: var(--surface2);
+}
+
+.btn-primary {
+  background: var(--blue);
+  color: var(--bg);
+  border-color: var(--blue);
+}
+
+.btn-primary:hover {
+  opacity: 0.85;
+}
+
+.btn-accent {
+  background: var(--green);
+  color: var(--bg);
+  border-color: var(--green);
+  font-weight: 600;
+}
+
+.btn-accent:hover {
+  opacity: 0.85;
+}
+
+.btn-accent:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+.btn-warn {
+  background: var(--yellow);
+  color: var(--bg);
+  border-color: var(--yellow);
+  font-weight: 600;
+}
+
+.btn-warn:hover {
+  opacity: 0.85;
+}
+
+.btn-warn:disabled {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+/* ---------- Status ---------- */
+.status-bar {
+  font-size: 12px;
+  color: var(--text-sub);
+  font-family: var(--mono);
+  padding: 6px 0;
+  min-height: 24px;
+}
+
+.status-bar .rms {
+  color: var(--yellow);
+  font-weight: 600;
+}
+
+.status-bar .model-tag {
+  color: var(--teal);
+}
+
+/* ---------- Plot ---------- */
+#plot-container {
+  flex: 1;
+  min-height: 0;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* ---------- Params panel ---------- */
+.params-panel {
+  background: var(--surface1);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--pink);
+  line-height: 1.6;
+  white-space: pre;
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+/* ---------- Scrollbar ---------- */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: var(--surface); }
+::-webkit-scrollbar-thumb { background: var(--surface2); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--overlay); }

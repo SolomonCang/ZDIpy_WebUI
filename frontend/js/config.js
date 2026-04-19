@@ -13,7 +13,7 @@ const CONFIG_SCHEMA = [
     section: 'star', label: 'Stellar Parameters', icon: '⭐', open: true,
     fields: [
       { key: 'inclination_deg',                    label: 'Inclination (°)',                    type: 'number', min: 0,   max: 90,  step: 0.5,  tooltip: 'Angle between the rotation axis and the line of sight (0° = pole-on, 90° = equator-on).' },
-      { key: 'vsini_kms',                          label: 'v sin i  (km/s)',                    type: 'number', min: 0,   max: 500, step: 0.1,  tooltip: 'Projected equatorial rotation velocity (km/s). Determines the width of the spectral line profile.' },
+      { key: 'vsini_kms',                          label: 'v sin i  (km/s)',                    type: 'number', min: 0,   max: 500, step: 0.1,  tooltip: 'Projected equatorial rotation velocity (km/s). Determines the width of the spectral line profile.', estimateVsini: true },
       { key: 'period_days',                        label: 'Period  (days)',                     type: 'number', min: 0,             step: 1e-4, tooltip: 'Stellar rotation period in days. Used to convert observation timestamps into rotation phases.' },
       { key: 'differential_rotation_rad_per_day',  label: 'Differential rotation  (rad/day)',   type: 'number',                     step: 1e-3, tooltip: 'Differential rotation coefficient dΩ (rad/day): angular velocity difference between equator and poles.' },
       { key: 'mass_msun',                          label: 'Mass  (M☉)',                         type: 'number', min: 0,             step: 0.01, tooltip: 'Stellar mass in solar masses. Used for gravity darkening calculations.' },
@@ -270,6 +270,18 @@ function _renderField(section, f) {
     f.step !== undefined ? `step="${f.step}"` : '',
   ].filter(Boolean).join(' ');
 
+  if (f.estimateVsini) {
+    return `
+      <div class="${wrapClass}"${condAttrs}>
+        <label class="field-label" for="${id}">${f.label}${_helpIcon(f.tooltip)}</label>
+        <div class="field-input-group">
+          <input ${attrs} />
+          <button type="button" class="btn btn-secondary btn-estimate-vsini" id="${id}-estimate-btn"
+            title="根据周期 (P)、半径 (R) 和倾角 (i) 自动估算：v sin i = 2π R sin(i) / P">⚡ 估算</button>
+        </div>
+      </div>`;
+  }
+
   return `
     <div class="${wrapClass}"${condAttrs}>
       <label class="field-label" for="${id}">${f.label}${_helpIcon(f.tooltip)}</label>
@@ -297,6 +309,77 @@ function _buildForm() {
   container.innerHTML = html;
   _applyAllConditionals();       // set initial visibility before any load
   _setupConditionalListeners();  // wire change events
+}
+
+// ---------------------------------------------------------------------------
+// v sin i estimator  (+ critical velocity & oblateness)
+// ---------------------------------------------------------------------------
+/**
+ * Estimate vsini from period, radius and inclination:
+ *   v sin i = 2π × R_sun_km × R_rsun × sin(i°) / (P_days × 86400)
+ * and fill the vsini input.
+ *
+ * If mass is also present, additionally compute:
+ *   Omega_break = sqrt(8/27 × G × M / R³)
+ *   wo           = Omega / Omega_break                 (fraction of critical)
+ *   v_crit       = Omega_break × R × R_sun             (equatorial critical speed)
+ *   oblateness   = Req/Rp  (Roche model, Tassoul 1978)
+ */
+function _estimateVsini() {
+  const R_SUN_KM    = 695700;    // km
+  const R_SUN_M     = 6.955e8;   // m
+  const M_SUN_KG    = 1.98892e30; // kg
+  const G           = 6.67408e-11; // m^3 kg^-1 s^-2
+  const SEC_PER_DAY = 86400;
+
+  const periodEl = document.getElementById('field-star-period_days');
+  const radiusEl = document.getElementById('field-star-radius_rsun');
+  const inclEl   = document.getElementById('field-star-inclination_deg');
+  const massEl   = document.getElementById('field-star-mass_msun');
+  const vsiniEl  = document.getElementById('field-star-vsini_kms');
+  const statusEl = document.getElementById('cfg-status');
+
+  const P = parseFloat(periodEl?.value);
+  const R = parseFloat(radiusEl?.value);
+  const i = parseFloat(inclEl?.value);
+  const M = parseFloat(massEl?.value);
+
+  if (!isFinite(P) || P <= 0 || !isFinite(R) || R <= 0 || !isFinite(i)) {
+    setStatus(statusEl, '⚠ 估算 v sin i 需要先填写周期 (P > 0)、半径 (R > 0) 和倾角。', 'error');
+    setTimeout(() => setStatus(statusEl, ''), 4000);
+    return;
+  }
+
+  const vsini = (2 * Math.PI * R_SUN_KM * R * Math.sin(i * Math.PI / 180)) / (P * SEC_PER_DAY);
+  vsiniEl.value = vsini.toFixed(2);
+
+  // --- Critical velocity & oblateness (requires mass) ----------------------
+  let extraMsg = '';
+  if (isFinite(M) && M > 0) {
+    const Omega       = 2 * Math.PI / (P * SEC_PER_DAY);           // rad/s
+    const Omega_break = Math.sqrt((8.0 / 27.0) * G * (M * M_SUN_KG) / (R * R_SUN_M)**3);
+    const wo          = Omega / Omega_break;                        // Omega/Omega_crit
+    const v_crit_kms  = Omega_break * R * R_SUN_M / 1000.0;        // km/s
+
+    let obl_str = 'N/A';
+    let wo_display = wo;
+    if (wo <= 1.0) {
+      const obl = (3.0 / wo) * Math.cos((Math.PI + Math.acos(wo)) / 3.0);
+      obl_str = obl.toFixed(4);
+    } else {
+      wo_display = 1.0;
+      obl_str = '— (超过临界)';
+    }
+
+    extraMsg = `  |  v_crit = ${v_crit_kms.toFixed(1)} km/s`
+             + `  |  Ω/Ω_crit = ${Math.min(wo, 1).toFixed(4)} (${(Math.min(wo, 1)*100).toFixed(1)}%)`
+             + `  |  Req/Rp = ${obl_str}`;
+  }
+
+  setStatus(statusEl,
+    `✔ v sin i 估算结果：${vsini.toFixed(2)} km/s（P = ${P} d，R = ${R} R☉，i = ${i}°）${extraMsg}`,
+    'ok');
+  setTimeout(() => setStatus(statusEl, ''), 8000);
 }
 
 // ---------------------------------------------------------------------------
@@ -417,4 +500,8 @@ document.addEventListener('DOMContentLoaded', () => {
     loadConfig().then(() => _setupHaNumAutoTemplate());
   });
   document.getElementById('cfg-save-btn')?.addEventListener('click', saveConfig);
+
+  // vsini estimator button (rendered by _buildForm)
+  document.getElementById('field-star-vsini_kms-estimate-btn')
+    ?.addEventListener('click', _estimateVsini);
 });

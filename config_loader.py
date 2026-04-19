@@ -32,7 +32,6 @@ class ZDIConfig:
     Provides the same interface consumed by the ZDIpy pipeline so that
     both the WebUI and the CLI can share the same configuration.
     """
-
     def __init__(self, config_path: str):
         self.config_path = str(config_path)
         self._base = Path(config_path).parent.resolve()
@@ -144,6 +143,8 @@ class ZDIConfig:
         self.unno_beta = _fget(line, "unno_beta", -1.0)
         self.unno_filling_factor_I = _fget(line, "unno_filling_factor_I", 1.0)
         self.unno_filling_factor_V = _fget(line, "unno_filling_factor_V", 1.0)
+        # Macroturbulence: broadens only Stokes I (not V). 0 = disabled.
+        self.unno_macro_turb_kms = _fget(line, "unno_macro_turb_kms", 0.0)
 
         # H-alpha compound model specific (used only when model_type = "halpha_compound")
         self.halpha_lande_g = _fget(line, "lande_g", 1.048)

@@ -230,7 +230,6 @@ class lineDataUnno:
     通常通过 ``from_parameters()`` 类方法由 config.json 参数构造，
     也可通过 ``from_file()`` 从扩展格式文件读取。
     """
-
     def __init__(self) -> None:
         self.wl0 = np.array([])
         self.str = np.array([])
@@ -244,6 +243,7 @@ class lineDataUnno:
         self.gravDark = np.array([])
         self.numLines = 0
         self.instRes: float = -1.0
+        self.macro_turb_kms: float = 0.0  # 宏观湍流 Gaussian FWHM（km/s），仅展宽 Stokes I
 
     @classmethod
     def from_parameters(
@@ -259,6 +259,7 @@ class lineDataUnno:
         beta: float = -1.0,
         filling_factor_I: float = 1.0,
         filling_factor_V: float = 1.0,
+        macro_turb_kms: float = 0.0,
     ) -> "lineDataUnno":
         """由 config.json 数值字段构造 ``lineDataUnno``。
 
@@ -300,6 +301,9 @@ class lineDataUnno:
                 f'lineDataUnno: using beta derived from limb darkening: {beta_val:.4f}'
             )
         obj.beta = np.array([beta_val])
+
+        # 宏观湍流（仅展宽 Stokes I，不影响 V）
+        obj.macro_turb_kms = max(0.0, float(macro_turb_kms))
 
         return obj
 
@@ -383,7 +387,6 @@ class localProfileAndDerivUnno:
     view_angle: (N_cells,)
         视线与格点法线夹角（rad）。
     """
-
     def __init__(
         self,
         ldata: lineDataUnno,
@@ -570,7 +573,6 @@ class diskIntProfAndDerivUnno:
     与 Voigt 版本的核心区别：``updateIntProfDeriv`` 使用 ``BdBprojected()``
     计算 Bmod 和 Btheta，而非仅取 B 的视线分量。
     """
-
     def __init__(
         self,
         visible_grid,
@@ -764,6 +766,59 @@ class diskIntProfAndDerivUnno:
             flat = np.convolve(tmpdV.ravel(), prof_g, mode='same')
             self.dVdBri = flat.reshape(tmpdV.shape)[:, n_pad:-n_pad]
 
+    def convolveMacroTurbI(self, macro_turb_kms: float) -> None:
+        """仅对 Stokes I 施加宏观湍流 Gaussian 展宽，Stokes V 完全不受影响。
+
+        宏观湍流（macroturbulence）作用于盘积分后的涌现 I 轮廓（large-scale
+        velocity fields average over the disk），而 Stokes V 的特征由局域磁场
+        Zeeman 分裂决定，不被宏观湍流展宽。这是解决"宽 I / 锐 V"矛盾的
+        物理正确途径。
+
+        Parameters
+        ----------
+        macro_turb_kms:
+            宏观湍流 Gaussian FWHM（km/s）。≤0 时跳过。
+        """
+        if macro_turb_kms <= 0.0:
+            return
+
+        wl_center = (self.wlStart + self.wlEnd) / 2.0
+        wl_step = (self.wlEnd - self.wlStart) / (self.numPts - 1)
+        fwhm_wl = wl_center * macro_turb_kms / _C_KMS
+        wl_end_g = 3.0 * fwhm_wl
+        num_pts_g = 2 * int(wl_end_g / wl_step) + 1
+
+        if fwhm_wl < wl_step or num_pts_g < 3:
+            return  # 宏观湍流宽度远小于一个像素，跳过
+
+        wl_g = np.linspace(-wl_end_g, wl_end_g, num_pts_g)
+        prof_g = (0.939437 / fwhm_wl) * np.exp(-2.772589 * (wl_g / fwhm_wl)**2)
+        prof_g /= np.sum(prof_g)
+        pad = num_pts_g // 2
+
+        def _pad_conv(arr: np.ndarray) -> np.ndarray:
+            padded = np.concatenate(
+                [np.repeat(arr[:1], pad), arr,
+                 np.repeat(arr[-1:], pad)])
+            return np.convolve(padded, prof_g, mode='valid')
+
+        # 仅卷积 IIc — VIc 保持不变
+        self.IIc = _pad_conv(self.IIc)
+
+        # 同步卷积 I 的亮度导数（dI/d(brightness)），保持 Jacobian 与展宽后 I 一致
+        if self.calcDI == 1 and isinstance(self.dIIc, np.ndarray):
+            n_pad = pad
+            tmpdI = np.concatenate([
+                np.tile(self.dIIc[:, :1], (1, n_pad)),
+                self.dIIc,
+                np.tile(self.dIIc[:, -1:], (1, n_pad)),
+            ],
+                                   axis=1)
+            flat = np.convolve(tmpdI.ravel(), prof_g, mode='same')
+            self.dIIc = flat.reshape(tmpdI.shape)[:, n_pad:-n_pad]
+
+        # VIc, dVIc, dVdBri 不做卷积 — 宏观湍流不影响 Stokes V
+
 
 # ---------------------------------------------------------------------------
 # 批量初始化辅助
@@ -818,5 +873,8 @@ def getAllProfDirivUnno(
             par.calcDV,
         )
         spec.convolveIGnumpy(par.instrumentRes)
+        macro_turb = getattr(ldata, 'macro_turb_kms', 0.0)
+        if macro_turb > 0.0:
+            spec.convolveMacroTurbI(macro_turb)
         set_syn_spec.append(spec)
     return set_syn_spec
