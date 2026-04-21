@@ -29,9 +29,9 @@ $$
 
 局部 Stokes V（弱场近似）：
 $$
-V_{\rm loc}(\lambda) = -g_{\rm eff} \cdot \Delta\lambda_Z \cdot B_{\rm los} \cdot \frac{\partial I_{\rm loc}}{\partial\lambda}
+V_{\rm loc}(\lambda) = -\Delta\lambda_Z \cdot B_{\rm los} \cdot \frac{\partial I_{\rm loc}}{\partial\lambda}
 $$
-其中 Zeeman 移位 $\Delta\lambda_Z = 4.6686\times10^{-12}\,\lambda_0^2\,g_{\rm eff}$（nm，场强单位 G），$B_{\rm los}$ 为视线方向磁场分量。
+其中 Zeeman 移位 $\Delta\lambda_Z = 4.6686\times10^{-12}\,g_{\rm eff}\,\lambda_0^2$（nm，场强单位 G），$B_{\rm los}$ 为视线方向磁场分量。
 
 **Humlicek (1982) Voigt 函数**（复误差函数 $w_4$，精度约 $10^{-4}$）：
 $$

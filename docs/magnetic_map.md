@@ -22,10 +22,10 @@ $$
 B_r = \sum_{\ell=1}^{\ell_{\rm max}}\sum_{m=0}^{\ell} \mathrm{Re}\!\left[\alpha_{\ell m}\,Y_\ell^m(\theta,\phi)\right]
 $$
 $$
-B_\theta = -\sum_{\ell,m} \mathrm{Re}\!\left[\beta_{\ell m}\frac{\partial Y_\ell^m}{\partial\theta} + \gamma_{\ell m}\frac{im}{\sin\theta} Y_\ell^m\right]
+B_\theta = -\sum_{\ell,m} \mathrm{Re}\!\left[\frac{1}{\ell+1}\!\left(\beta_{\ell m}\frac{\partial Y_\ell^m}{\partial\theta} + \gamma_{\ell m}\frac{im}{\sin\theta} Y_\ell^m\right)\right]
 $$
 $$
-B_\phi = -\sum_{\ell,m} \mathrm{Re}\!\left[\beta_{\ell m}\frac{im}{\sin\theta} Y_\ell^m - \gamma_{\ell m}\frac{\partial Y_\ell^m}{\partial\theta}\right]
+B_\phi = -\sum_{\ell,m} \mathrm{Re}\!\left[\frac{1}{\ell+1}\!\left(\beta_{\ell m}\frac{im}{\sin\theta} Y_\ell^m - \gamma_{\ell m}\frac{\partial Y_\ell^m}{\partial\theta}\right)\right]
 $$
 
 其中归一化球谐函数：

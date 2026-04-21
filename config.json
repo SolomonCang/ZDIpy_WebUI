@@ -1,33 +1,33 @@
 {
   "star": {
-    "inclination_deg": 67,
-    "vsini_kms": 9.3,
-    "period_days": 4.847,
-    "differential_rotation_rad_per_day": 0,
-    "mass_msun": 0.5,
-    "radius_rsun": 0.75
+    "inclination_deg": 45,
+    "vsini_kms": 67.7,
+    "period_days": 0.4232,
+    "differential_rotation_rad_per_day": 0.02,
+    "mass_msun": 0.66,
+    "radius_rsun": 0.72
   },
   "grid": {
     "nRings": 60
   },
   "inversion": {
     "target_form": "C",
-    "target_value": 1,
-    "num_iterations": 6,
+    "target_value": 0.5,
+    "num_iterations": 5,
     "test_aim": 0.0001
   },
   "magnetic": {
-    "fit_magnetic": 0,
-    "l_max": 7,
+    "fit_magnetic": 1,
+    "l_max": 15,
     "default_bent": 100,
     "geometry_type": "Full",
     "init_from_file": 0,
-    "init_file": "results/outMagCoeff.dat"
+    "init_file": "/Users/tianqi/Documents/Codes_collection/ZDI_and/ZDIpy_WebUI/ZDIpy_WebUI/results/outMagCoeff.dat"
   },
   "brightness": {
     "fit_brightness": 1,
     "chi2_scale_I": 1,
-    "chi2_scale_V": 1,
+    "chi2_scale_V": 10,
     "entropy_scale": 1,
     "entropy_form": 1,
     "default_bright": 1,
@@ -36,7 +36,7 @@
     "init_file": "outBrightMap.dat"
   },
   "line_model": {
-    "model_type": "ha_num",
+    "model_type": "voigt",
     "ha_num_auto_template": 1,
     "ha_num_template_file": "",
     "ha_num_filling_factor_V": 1,
@@ -45,19 +45,19 @@
     "line_strength": 0.6306,
     "gauss_width_kms": 2.41,
     "lorentz_width_fraction": 0.89,
-    "lande_g": 1.048,
-    "limb_darkening": 0,
-    "gravity_darkening": 0,
+    "lande_g": 1.195,
+    "limb_darkening": 0.66,
+    "gravity_darkening": 0.5,
     "unno_beta": -1,
     "unno_filling_factor_I": 0,
     "unno_filling_factor_V": 1,
     "emission_strength": 2.5,
-    "emission_gauss_kms": 24,
-    "emission_lorentz_ratio": 0.1,
-    "absorption_strength": 2,
-    "absorption_gauss_kms": 10,
-    "absorption_lorentz_ratio": 0.89,
-    "filling_factor_V": 0.5,
+    "emission_gauss_kms": 80,
+    "emission_lorentz_ratio": 0.15,
+    "absorption_strength": 1.2,
+    "absorption_gauss_kms": 25,
+    "absorption_lorentz_ratio": 0.1,
+    "filling_factor_V": 1,
     "halpha_normalize_emission": 1,
     "halpha_auto_init": 1
   },
@@ -65,31 +65,91 @@
     "spectral_resolution": 65000
   },
   "velocity_grid": {
-    "vel_start_kms": -220,
-    "vel_end_kms": 220
+    "vel_start_kms": -200,
+    "vel_end_kms": 200
   },
   "observations": {
-    "jdate_ref": 2453567.95235,
+    "jdate_ref": 2456892.015,
     "files": [
       {
-        "filename": "LSDprof/aumic_16jul05_v_01.prof.norm",
-        "jdate": 2453567.95235,
-        "vel_center_kms": -4.822
+        "filename": "LSDprof/lopeg_16aug14_v_02.prof.norm",
+        "jdate": 2456886.39347,
+        "vel_center_kms": -19.8
       },
       {
-        "filename": "LSDprof/aumic_16jul05_v_02.prof.norm",
-        "jdate": 2453568.01308,
-        "vel_center_kms": -4.806
+        "filename": "LSDprof/lopeg_19aug14_v_01.prof.norm",
+        "jdate": 2456889.45893,
+        "vel_center_kms": -19.8
       },
       {
-        "filename": "LSDprof/aumic_17jul05_v_01.prof.norm",
-        "jdate": 2453568.91412,
-        "vel_center_kms": -4.206
+        "filename": "LSDprof/lopeg_19aug14_v_05.prof.norm",
+        "jdate": 2456889.49867,
+        "vel_center_kms": -19.8
       },
       {
-        "filename": "LSDprof/aumic_17jul05_v_02.prof.norm",
-        "jdate": 2453569.00606,
-        "vel_center_kms": -4.242
+        "filename": "LSDprof/lopeg_19aug14_v_10.prof.norm",
+        "jdate": 2456889.63364,
+        "vel_center_kms": -19.8
+      },
+      {
+        "filename": "LSDprof/lopeg_20aug14_v_01.prof.norm",
+        "jdate": 2456890.37073,
+        "vel_center_kms": -19.8
+      },
+      {
+        "filename": "LSDprof/lopeg_20aug14_v_05.prof.norm",
+        "jdate": 2456890.41035,
+        "vel_center_kms": -19.8
+      },
+      {
+        "filename": "LSDprof/lopeg_23aug14_v_01.prof.norm",
+        "jdate": 2456893.37022,
+        "vel_center_kms": -19.8
+      },
+      {
+        "filename": "LSDprof/lopeg_23aug14_v_07.prof.norm",
+        "jdate": 2456893.59322,
+        "vel_center_kms": -19.8
+      },
+      {
+        "filename": "LSDprof/lopeg_25aug14_v_01.prof.norm",
+        "jdate": 2456895.35262,
+        "vel_center_kms": -19.8
+      },
+      {
+        "filename": "LSDprof/lopeg_25aug14_v_05.prof.norm",
+        "jdate": 2456895.39231,
+        "vel_center_kms": -19.8
+      },
+      {
+        "filename": "LSDprof/lopeg_25aug14_v_10.prof.norm",
+        "jdate": 2456895.66972,
+        "vel_center_kms": -19.8
+      },
+      {
+        "filename": "LSDprof/lopeg_27aug14_v_01.prof.norm",
+        "jdate": 2456897.37195,
+        "vel_center_kms": -19.8
+      },
+      {
+        "filename": "LSDprof/lopeg_27aug14_v_07.prof.norm",
+        "jdate": 2456897.63668,
+        "vel_center_kms": -19.8
+      },
+      {
+        "filename": "LSDprof/lopeg_31aug14_v_01.prof.norm",
+        "jdate": 2456901.34774,
+        "vel_center_kms": -19.8
+      },
+      {
+        "filename": "LSDprof/lopeg_31aug14_v_05.prof.norm",
+        "jdate": 2456901.38749,
+        "vel_center_kms": -19.8
+      },
+      {
+        "filename": "LSDprof/lopeg_31aug14_v_10.prof.norm",
+        "jdate": 2456901.60634,
+        "vel_center_kms": -19.8
       }
     ]
   },
