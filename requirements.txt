@@ -5,3 +5,7 @@ matplotlib>=3.7
 fastapi>=0.110
 uvicorn[standard]>=0.29
 python-multipart>=0.0.9
+# PFSS extrapolation (optional — needed for /api/plots/pfss_3d)
+pfsspy>=1.0
+sunpy>=4.0
+astropy>=5.0

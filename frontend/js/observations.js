@@ -143,7 +143,7 @@ let _obsRowCounter = 0;
 
 /**
  * Build a single <tr> for one observation entry.
- * @param {{filename:string, jdate:number, vel_center_kms:number}|null} entry
+ * @param {{filename:string, jdate:number, vel_center_kms:number, renormalize_wings:boolean}|null} entry
  */
 function buildObsRow(entry) {
   const idx = ++_obsRowCounter;
@@ -153,6 +153,7 @@ function buildObsRow(entry) {
   const fn = entry ? escHtml(String(entry.filename))  : '';
   const jd = entry != null ? entry.jdate              : '';
   const rv = entry != null ? entry.vel_center_kms      : '';
+  const rw = entry != null ? entry.renormalize_wings   : false;
 
   tr.innerHTML = `
     <td class="obs-row-num"></td>
@@ -178,6 +179,12 @@ function buildObsRow(entry) {
              value="${rv}"
              step="0.1"
              placeholder="-19.8" />
+    </td>
+    <td style="text-align: center;">
+      <input type="checkbox"
+             class="obs-rw"
+             ${rw ? 'checked' : ''}
+             title="Renormalize Stokes I wings for this entry" />
     </td>
     <td class="obs-file-status obs-file-unknown" title="Not validated">—</td>
     <td>
@@ -311,6 +318,7 @@ async function saveObservations() {
     const fn = tr.querySelector('.obs-fn')?.value.trim()   ?? '';
     const jd = parseFloat(tr.querySelector('.obs-jdate')?.value ?? '');
     const rv = parseFloat(tr.querySelector('.obs-rv')?.value    ?? '');
+    const rw = tr.querySelector('.obs-rw')?.checked ?? false;
 
     if (!fn) {
       setStatus(statusEl, `❌ Row ${i + 1}: filename is required.`, 'error');
@@ -327,7 +335,7 @@ async function saveObservations() {
       valid = false;
       return;
     }
-    files.push({ filename: fn, jdate: jd, vel_center_kms: rv });
+    files.push({ filename: fn, jdate: jd, vel_center_kms: rv, renormalize_wings: rw });
   });
 
   if (!valid) return;

@@ -32,6 +32,7 @@ class ZDIConfig:
     Provides the same interface consumed by the ZDIpy pipeline so that
     both the WebUI and the CLI can share the same configuration.
     """
+
     def __init__(self, config_path: str):
         self.config_path = str(config_path)
         self._base = Path(config_path).parent.resolve()
@@ -202,6 +203,8 @@ class ZDIConfig:
         self.fnames = np.array([_r(o["filename"]) for o in obs_files])
         self.jDates = np.array([float(o["jdate"]) for o in obs_files])
         self.velRs = np.array([float(o["vel_center_kms"]) for o in obs_files])
+        self.renormalizeWings = np.array(
+            [bool(o.get("renormalize_wings", False)) for o in obs_files])
         self.numObs = len(obs_files)
 
         # Sanity warnings for observations

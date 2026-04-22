@@ -59,7 +59,11 @@ def obsProfSet(obsFileNameList):
     return obsSet
 
 
-def obsProfSetInRange(obsFileNameList, velStart, velEnd, velRs):
+def obsProfSetInRange(obsFileNameList,
+                      velStart,
+                      velEnd,
+                      velRs,
+                      renormalizeWings=None):
     # read in observation files from an array of file names
     # returns an array of obsProf object,
     # restricted to be within velStart and velEnd of the central velRs
@@ -85,6 +89,27 @@ def obsProfSetInRange(obsFileNameList, velStart, velEnd, velRs):
         obsTmp.specVsig = obsTmp.specVsig[iStart:iEnd + 1]
         obsTmp.specN = obsTmp.specN[iStart:iEnd + 1]
         obsTmp.specNsig = obsTmp.specNsig[iStart:iEnd + 1]
+
+        if renormalizeWings is not None and renormalizeWings[nFile]:
+            # Use 5 points from both ends as wings, fit a linear baseline to Stokes I
+            # and divide it across arrays since Stokes I baseline should be 1.0.
+            n_pts = len(obsTmp.wl)
+            if n_pts > 20:
+                idx_wings = np.concatenate(
+                    (np.arange(10), np.arange(n_pts - 10, n_pts)))
+                x_wings = obsTmp.wl[idx_wings]
+                y_wings = obsTmp.specI[idx_wings]
+                fit_coef = np.polyfit(x_wings, y_wings, 1)
+                baseline = np.polyval(fit_coef, obsTmp.wl)
+            else:
+                baseline = np.mean(obsTmp.specI)
+
+            obsTmp.specI /= baseline
+            obsTmp.specIsig /= baseline
+            obsTmp.specV /= baseline
+            obsTmp.specVsig /= baseline
+            obsTmp.specN /= baseline
+            obsTmp.specNsig /= baseline
 
         obsSet = np.append(obsSet, obsTmp)
         nFile += 1

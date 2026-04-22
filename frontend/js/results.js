@@ -472,10 +472,56 @@ async function loadBrightnessPolar() {
 }
 
 // ---------------------------------------------------------------------------
+// PFSS 3D 磁力线外推
+// ---------------------------------------------------------------------------
+async function loadPFSS3D() {
+  const btn      = document.getElementById('pfss-run-btn');
+  const statusEl = document.getElementById('pfss-status');
+  const chartEl  = document.getElementById('pfss-chart');
+  const noData   = document.getElementById('pfss-no-data');
+  if (!btn || !chartEl) return;
+
+  const rss       = parseFloat(document.getElementById('pfss-rss')?.value     ?? '2.5');
+  const nrho      = parseInt(document.getElementById('pfss-nrho')?.value      ?? '30', 10);
+  const latSeeds  = parseInt(document.getElementById('pfss-lat-seeds')?.value ?? '18', 10);
+  const lonSeeds  = parseInt(document.getElementById('pfss-lon-seeds')?.value ?? '8',  10);
+
+  btn.disabled = true;
+  statusEl.textContent = '计算中，请稍候…';
+  statusEl.style.color = '#8b949e';
+
+  try {
+    const params = new URLSearchParams({
+      nrho, rss, n_lat_seeds: latSeeds, n_lon_seeds: lonSeeds,
+    });
+    const plotJson = await apiFetch(`/api/plots/pfss_3d?${params}`);
+
+    noData && (noData.style.display = 'none');
+    chartEl.style.display = '';
+
+    const layout = {
+      ...plotJson.layout,
+      paper_bgcolor: '#0d1117',
+      height: 520,
+      margin: { t: 40, r: 10, b: 10, l: 10 },
+    };
+    Plotly.react(chartEl, plotJson.data, layout, { ...PLOTLY_CONFIG, responsive: true });
+    statusEl.textContent = '完成';
+    statusEl.style.color = '#3fb950';
+  } catch (err) {
+    statusEl.textContent = `错误: ${err.message}`;
+    statusEl.style.color = '#f85149';
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Init
 // ---------------------------------------------------------------------------
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('results-refresh-btn')?.addEventListener('click', loadAllResults);
   document.getElementById('magnetic-mpl-btn')?.addEventListener('click', loadMagneticPolar);
   document.getElementById('brightness-mpl-btn')?.addEventListener('click', loadBrightnessPolar);
+  document.getElementById('pfss-run-btn')?.addEventListener('click', loadPFSS3D);
 });

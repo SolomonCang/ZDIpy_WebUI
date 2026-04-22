@@ -74,6 +74,7 @@ def _compute_legendre_batch(
 # Saves a set of spherical harmonic coefficients for magnetic fields,
 # and has functions to return magnetic vectors based on those coefficients
 class magSphHarmonics:
+
     def __init__(self, nHarmics):
 
         self.nl = nHarmics
@@ -177,7 +178,11 @@ class magSphHarmonics:
             factorial(self.l + self.m))
         c2_term = c_term / (self.l + 1.0)
         c3_term = 1j * c2_term * self.m
-        inv_sin = 1.0 / sin_clat  # (N_cells,)
+        # Guard against divide-by-zero at the poles (sin_clat = 0).
+        # At exact poles the XTerm contribution is zero anyway (m≠0 terms vanish),
+        # so replacing with inf would propagate NaN; use a safe denominator instead.
+        inv_sin = np.where(np.abs(sin_clat) > 1e-14, 1.0 / sin_clat,
+                           0.0)  # (N_cells,)
 
         # 6. Build and store SH basis matrices — pure matrix multiplications
         self.YTerm = c_term[:, np.

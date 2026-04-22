@@ -121,27 +121,72 @@ def fitLineStrength(meanEquivWidObs: float,
     if verbose == 1:
         print('fitting line strength (by equivalent width)')
 
-    setSynSpec = []
-    for nObs, _phase in enumerate(par.cycleList):
-        spec = _DiskIntCls(listGridView[nObs], vecMagCart, dMagCart0, briMap,
-                           lineData, par.velEq, wlSynSet[nObs], 0, 0)
-        spec.convolveIGnumpy(par.instrumentRes)
-        setSynSpec.append(spec)
-
-    # 使用有界搜索，搜索区间 [kL*1e-4, kL*1e4]——对低 β 的 UR 模型更鲁棒，
-    # 避免 Brent 三点包围在凹形/平坦曲线上失败。
     kL0 = lineData.str[0]
-    fitResult = minimize_scalar(
-        equivWidComp2,
-        bounds=(kL0 * 1e-4, kL0 * 1e4),
-        method='bounded',
-        options={'xatol': 1e-5},
-        args=(meanEquivWidObs, setSynSpec, lineData),
-    )
 
-    if verbose == 1:
-        ew = equivWidComp2(fitResult.x, 0, setSynSpec, lineData)
-        print('best match line strength is {:f} (ew {:f})'.format(
-            fitResult.x, ew))
+    if isinstance(lineData, _lineDataUnno):
+        # UR 模型中 EW 与 kL 的关系是非线性的（存在饱和效应），
+        # equivWidComp2 中的线性缩放假设仅对 Voigt 弱场模型有效。
+        # 此处对每个试验 kL 值重新计算完整盘积分以得到准确 EW。
+        n_obs = len(par.cycleList)
 
-    lineData.str[0] = fitResult.x
+        def _ur_ew_residual(kL_trial: float) -> float:
+            lineData.str[0] = float(kL_trial)
+            total_ew = 0.0
+            for nObs in range(n_obs):
+                spec = _DiskIntCls(listGridView[nObs], vecMagCart, dMagCart0,
+                                   briMap, lineData, par.velEq, wlSynSet[nObs],
+                                   0, 0)
+                spec.convolveIGnumpy(par.instrumentRes)
+                total_ew += calcSynEW(spec)
+            return float(np.abs(meanEquivWidObs - total_ew / n_obs))
+
+        fitResult = minimize_scalar(
+            _ur_ew_residual,
+            bounds=(kL0 * 1e-4, kL0 * 1e4),
+            method='bounded',
+            options={'xatol': 1e-5},
+        )
+        lineData.str[0] = fitResult.x
+
+        if verbose == 1:
+            # 重新计算以报告最终 EW
+            lineData.str[0] = fitResult.x
+            final_ew = meanEquivWidObs - _ur_ew_residual(
+                fitResult.x) + meanEquivWidObs
+            # _ur_ew_residual 返回 |EW_model - EW_obs|，EW_model = meanEquivWidObs ± residual
+            # 重新算一次以便打印真实 EW
+            lineData.str[0] = fitResult.x
+            total_ew = 0.0
+            for nObs in range(n_obs):
+                spec = _DiskIntCls(listGridView[nObs], vecMagCart, dMagCart0,
+                                   briMap, lineData, par.velEq, wlSynSet[nObs],
+                                   0, 0)
+                spec.convolveIGnumpy(par.instrumentRes)
+                total_ew += calcSynEW(spec)
+            print('best match line strength is {:f} (ew {:f})'.format(
+                fitResult.x, total_ew / n_obs))
+    else:
+        # Voigt 模型：深度与 kL 线性相关，equivWidComp2 的线性缩放有效
+        setSynSpec = []
+        for nObs, _phase in enumerate(par.cycleList):
+            spec = _DiskIntCls(listGridView[nObs], vecMagCart, dMagCart0,
+                               briMap, lineData, par.velEq, wlSynSet[nObs], 0,
+                               0)
+            spec.convolveIGnumpy(par.instrumentRes)
+            setSynSpec.append(spec)
+
+        # 使用有界搜索，搜索区间 [kL*1e-4, kL*1e4]
+        fitResult = minimize_scalar(
+            equivWidComp2,
+            bounds=(kL0 * 1e-4, kL0 * 1e4),
+            method='bounded',
+            options={'xatol': 1e-5},
+            args=(meanEquivWidObs, setSynSpec, lineData),
+        )
+
+        if verbose == 1:
+            ew = equivWidComp2(fitResult.x, 0, setSynSpec, lineData)
+            print('best match line strength is {:f} (ew {:f})'.format(
+                fitResult.x, ew))
+
+        lineData.str[0] = fitResult.x

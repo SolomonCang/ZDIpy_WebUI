@@ -360,3 +360,60 @@ def get_brightness_polar_plot():
     plt.close(fig)
     buf.seek(0)
     return Response(content=buf.read(), media_type="image/png")
+
+
+# ---------------------------------------------------------------------------
+# GET /api/plots/pfss_3d
+# ---------------------------------------------------------------------------
+@router.get("/plots/pfss_3d")
+def get_pfss_3d_plot(
+    nrho: int = Query(30, ge=10, le=100, description="PFSS 径向网格层数（10–100）"),
+    rss: float = Query(2.5,
+                       ge=1.1,
+                       le=10.0,
+                       description="源面半径，单位恒星半径（1.1–10.0）"),
+    n_lat_seeds: int = Query(18, ge=4, le=60, description="磁力线追踪纬度种子数（4–60）"),
+    n_lon_seeds: int = Query(8, ge=4, le=60, description="磁力线追踪经度种子数（4–60）"),
+) -> Dict[str, Any]:
+    """计算 PFSS 磁力线外推并返回 Plotly 3D 交互图 JSON。
+
+    以 ZDI 反演所得球谐系数重建恒星表面 Br 图，经 pfsspy 求解位势场，
+    追踪磁力线后组装 Plotly Scatter3d + Surface trace，供前端直接渲染。
+
+    Returns
+    -------
+    JSON dict with "data" and "layout" keys for ``Plotly.newPlot``.
+    """
+    result = _get_result()
+    mag_coeffs = result.get("mag_coeffs", {})
+    if not mag_coeffs or not mag_coeffs.get("alpha"):
+        raise HTTPException(
+            status_code=404,
+            detail="结果中无磁场系数，请先完成 ZDI 反演。",
+        )
+
+    try:
+        from core.pfss import compute_pfss_plotly  # noqa: PLC0415
+    except ImportError as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"PFSS 依赖未安装：{exc}",
+        ) from exc
+
+    try:
+        plot_json = compute_pfss_plotly(
+            mag_coeffs,
+            nrho=nrho,
+            rss=rss,
+            n_lat_seeds=n_lat_seeds,
+            n_lon_seeds=n_lon_seeds,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"PFSS 计算失败：{exc}",
+        ) from exc
+
+    return plot_json

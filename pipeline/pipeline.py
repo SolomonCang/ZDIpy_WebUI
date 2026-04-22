@@ -34,6 +34,7 @@ class ZDIPipeline:
         When set, the pipeline will stop gracefully at the next iteration
         boundary and return early with ``cancelled=True``.
     """
+
     def __init__(
         self,
         par,
@@ -136,8 +137,12 @@ class ZDIPipeline:
             _template_path = getattr(par, 'ha_num_template_file', '')
             if _use_auto or not _template_path:
                 # 先对观测振幅做归一化，再计算中值模板，确保模板与反演数据振幅一致
-                _obs_tpl = readObs.obsProfSetInRange(par.fnames, par.velStart,
-                                                     par.velEnd, par.velRs)
+                _obs_tpl = readObs.obsProfSetInRange(
+                    par.fnames,
+                    par.velStart,
+                    par.velEnd,
+                    par.velRs,
+                    renormalizeWings=getattr(par, 'renormalizeWings', None))
                 normalize_halpha_emission(list(_obs_tpl),
                                           par.velRs,
                                           log_fn=self._log)
@@ -189,8 +194,12 @@ class ZDIPipeline:
             self._log("Line model: Voigt (weak-field approximation)")
 
         # --- Load observed spectra ----------------------------------------
-        obsSet = readObs.obsProfSetInRange(par.fnames, par.velStart,
-                                           par.velEnd, par.velRs)
+        obsSet = readObs.obsProfSetInRange(par.fnames,
+                                           par.velStart,
+                                           par.velEnd,
+                                           par.velRs,
+                                           renormalizeWings=getattr(
+                                               par, 'renormalizeWings', None))
 
         # --- H-alpha pre-processing (only for halpha_compound model) -----
         _halpha_init_plot: dict | None = None

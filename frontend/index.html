@@ -96,8 +96,9 @@
               <tr>
                 <th style="width:2rem">#</th>
                 <th>Filename <span class="hint" style="text-transform:none;letter-spacing:0">(relative to project root)</span></th>
-                <th style="width:13rem">Julian Date</th>
-                <th style="width:11rem">RV center (km/s)</th>
+                <th style="width:11rem">Julian Date</th>
+                <th style="width:9rem">RV center (km/s)</th>
+                <th style="width:4.5rem" title="Renormalize Stokes I wings">Renorm</th>
                 <th style="width:6rem">File</th>
                 <th style="width:3rem"></th>
               </tr>
@@ -220,6 +221,41 @@
         <div class="card-title">Light Curve</div>
         <div id="lc-chart" style="width:100%; min-height:260px"></div>
       </div>
+
+      <!-- PFSS 3D 磁力线外推 -->
+      <div class="card results-card">
+        <div class="card-title" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+          <span>PFSS 3D 磁力线外推</span>
+          <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <label style="font-size:12px;color:#8b949e">
+              r<sub>ss</sub>
+              <input type="number" id="pfss-rss" value="2.5" min="1.1" max="10" step="0.1"
+                     style="width:60px;margin-left:4px" class="field-input" />
+            </label>
+            <label style="font-size:12px;color:#8b949e">
+              nrho
+              <input type="number" id="pfss-nrho" value="30" min="10" max="100" step="1"
+                     style="width:55px;margin-left:4px" class="field-input" />
+            </label>
+            <label style="font-size:12px;color:#8b949e">
+              lat seeds
+              <input type="number" id="pfss-lat-seeds" value="18" min="4" max="60" step="1"
+                     style="width:50px;margin-left:4px" class="field-input" />
+            </label>
+            <label style="font-size:12px;color:#8b949e">
+              lon seeds
+              <input type="number" id="pfss-lon-seeds" value="8" min="4" max="60" step="1"
+                     style="width:50px;margin-left:4px" class="field-input" />
+            </label>
+            <button id="pfss-run-btn" class="btn btn-ghost btn-sm">🌐 生成 PFSS 3D 图</button>
+            <span id="pfss-status" style="font-size:11px;color:#8b949e"></span>
+          </span>
+        </div>
+        <div id="pfss-chart" style="width:100%; min-height:500px; display:none"></div>
+        <p id="pfss-no-data" class="no-data-msg">
+          请先完成 ZDI 反演，然后点击"生成 PFSS 3D 图"。
+        </p>
+      </div>
     </section>
 
   </main><!-- /app-main -->
@@ -238,6 +274,6 @@
   <script src="/js/config.js?v=10"></script>
   <script src="/js/observations.js"></script>
   <script src="/js/run.js?v=2"></script>
-  <script src="/js/results.js?v=3"></script>
+  <script src="/js/results.js?v=4"></script>
 </body>
 </html>

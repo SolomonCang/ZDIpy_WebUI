@@ -1,5 +1,10 @@
-it   1  entropy       0.00000  chi2   2.306097  chi2I 37599.3535  chi2V 48445.7417  Test   0.500000 meanBright  1.0000000 meanSpot  0.0000000 meanMag     0.0000
-it   2  entropy      -0.03706  chi2   2.249767  chi2I 35498.7315  chi2V 48444.5720  Test   0.003949 meanBright  1.0000000 meanSpot  0.0469653 meanMag     0.0116
-it   3  entropy      -0.16027  chi2   2.226978  chi2I 34653.2833  chi2V 48439.7327  Test   0.015835 meanBright  0.9988254 meanSpot  0.1007484 meanMag     0.0607
-it   4  entropy      -0.47843  chi2   2.215486  chi2I 34239.8766  chi2V 48424.3371  Test   0.073532 meanBright  0.9805167 meanSpot  0.1741177 meanMag     0.2033
-it   5  entropy      -1.55807  chi2   2.205454  chi2I 33920.3954  chi2V 48369.5038  Test   0.451462 meanBright  0.9602037 meanSpot  0.3047933 meanMag     0.6930
+it   1  entropy      -3.02167  chi2  18.854890  chi2V  4223.4953  Test   1.007620 meanBright  1.0000000 meanSpot  0.0000000 meanMag     2.5803
+it   2  entropy    -181.76387  chi2  11.074487  chi2V  2480.6852  Test   0.003060 meanBright  1.0000000 meanSpot  0.0000000 meanMag    66.3036
+it   3  entropy    -435.35455  chi2   8.503904  chi2V  1904.8746  Test   0.000623 meanBright  1.0000000 meanSpot  0.0000000 meanMag   108.4649
+it   4  entropy    -641.12163  chi2   7.664599  chi2V  1716.8703  Test   0.000453 meanBright  1.0000000 meanSpot  0.0000000 meanMag   134.9880
+it   5  entropy    -786.40496  chi2   7.421298  chi2V  1662.3707  Test   0.003102 meanBright  1.0000000 meanSpot  0.0000000 meanMag   149.5349
+it   6  entropy    -990.15786  chi2   7.300223  chi2V  1635.2500  Test   0.182562 meanBright  1.0000000 meanSpot  0.0000000 meanMag   159.5523
+it   7  entropy   -1346.87079  chi2   7.137203  chi2V  1598.7336  Test   0.144153 meanBright  1.0000000 meanSpot  0.0000000 meanMag   163.8528
+it   8  entropy   -2531.33616  chi2   6.543083  chi2V  1465.6506  Test   0.122034 meanBright  1.0000000 meanSpot  0.0000000 meanMag   182.9223
+it   9  entropy   -6719.65581  chi2   4.346425  chi2V   973.5991  Test   0.367813 meanBright  1.0000000 meanSpot  0.0000000 meanMag   252.0738
+it  10  entropy   -8631.46203  chi2   3.209266  chi2V   718.8755  Test   0.104136 meanBright  1.0000000 meanSpot  0.0000000 meanMag   296.3306

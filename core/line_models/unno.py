@@ -163,7 +163,14 @@ def _unno_profile(
     wl_gauss_norm_R = (wls - wl0 - wl_b_sig) / width_gauss_wl
 
     # --- Voigt + Faraday-Voigt 函数，各 Zeeman 组分 ---
-    norm = 1.0 / (np.sqrt(np.pi) * width_gauss)
+    # 标准 ME 公式（Landi Degl'Innocenti & Landolfi 2004 式 9.32）要求在
+    # 无量纲归一化频率 v = (λ-λ₀)/σ_D 空间下定义吸收廓线：
+    #   φ_π(v) = H(a,v) / √π  （无量纲，∫φ dv = 1）
+    # wl_gauss_norm 已是无量纲量，Humlicek 函数输入/输出也是无量纲的，
+    # 因此 norm 中不应再除以 width_gauss（km/s）。
+    # 若误除 width_gauss，eta_P 被缩小 width_gauss 倍，导致 kL 被迫放大
+    # 至 O(width_gauss × 10)，进入 UR 方程的饱和区，无法拟合 Stokes I 形状。
+    norm = 1.0 / np.sqrt(np.pi)
 
     W = _voigt_faraday_humlicek(wl_gauss_norm, width_lorentz)
     eta_P = W.real * norm
@@ -230,6 +237,7 @@ class lineDataUnno:
     通常通过 ``from_parameters()`` 类方法由 config.json 参数构造，
     也可通过 ``from_file()`` 从扩展格式文件读取。
     """
+
     def __init__(self) -> None:
         self.wl0 = np.array([])
         self.str = np.array([])
@@ -387,6 +395,7 @@ class localProfileAndDerivUnno:
     view_angle: (N_cells,)
         视线与格点法线夹角（rad）。
     """
+
     def __init__(
         self,
         ldata: lineDataUnno,
@@ -573,6 +582,7 @@ class diskIntProfAndDerivUnno:
     与 Voigt 版本的核心区别：``updateIntProfDeriv`` 使用 ``BdBprojected()``
     计算 Bmod 和 Btheta，而非仅取 B 的视线分量。
     """
+
     def __init__(
         self,
         visible_grid,
