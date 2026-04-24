@@ -126,6 +126,22 @@ class ZDIConfig:
         self.initBrightFromFile = int(bri["init_from_file"])
         self.initBrightFile = _r(str(bri["init_file"]))
 
+        # --- Epoch brightness variation (per-observation dT) ----------------
+        # Support both nested format (from config.json) and flat format (from frontend)
+        ev = bri.get("epoch_variation", {})
+        self.epochVarEnabled = bool(ev["enabled"] if "enabled" in ev else bri.
+                                    get("epoch_var_enabled", False))
+        self.epochVarMode = int(ev["var_mode"] if "var_mode" in
+                                ev else bri.get("epoch_var_mode", 1))
+        self.epochVarT = float(ev["lifetime_cycles"] if "lifetime_cycles" in
+                               ev else bri.get("epoch_var_lifetime", 100.0))
+        self.epochVarKK = float(ev["kk"] if "kk" in
+                                ev else bri.get("epoch_var_kk", 10.0))
+        self.epochVarDphi = float(ev["dphi"] if "dphi" in
+                                  ev else bri.get("epoch_var_dphi", 0.0))
+        self.epochVarDT = float(ev["dT"] if "dT" in
+                                ev else bri.get("epoch_var_dt", 1.0))
+
         # --- Line model ----------------------------------------------------
         self.estimateStrenght = int(line.get("estimate_strength", 0) or 0)
         self.line_model_type = str(line.get("model_type", "voigt")
@@ -203,6 +219,8 @@ class ZDIConfig:
         self.fnames = np.array([_r(o["filename"]) for o in obs_files])
         self.jDates = np.array([float(o["jdate"]) for o in obs_files])
         self.velRs = np.array([float(o["vel_center_kms"]) for o in obs_files])
+        self.obsDT = np.array(
+            [float(o.get("dT", self.epochVarDT)) for o in obs_files])
         self.renormalizeWings = np.array(
             [bool(o.get("renormalize_wings", False)) for o in obs_files])
         self.numObs = len(obs_files)

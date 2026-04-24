@@ -13,6 +13,7 @@ import numpy as np
 # Saves the brightness map as a set of pixels,
 # using the grid of colatitude and longitude supplied at initialization.
 class brightMap:
+
     def __init__(self, clat, lon):
         self.clat = clat
         self.lon = lon
@@ -118,3 +119,100 @@ def SetupBrightMap(sGrid,
         briMap.bright[:] = defaultBright
 
     return briMap
+
+
+def epoch_brightness_scale(cq: np.ndarray,
+                           phase: float,
+                           var: int,
+                           t: float = 100.0,
+                           kk: float = 10.0,
+                           dphi: float = 0.0,
+                           dT: float = 1.0) -> tuple:
+    """
+    Apply phase-dependent brightness modulation to grid-cell brightness (Cq).
+
+    This implements the epoch-dependent temperature variation algorithm from CTTSzdi2,
+    where brightness at each grid cell is modulated by a phase-dependent envelope function.
+    Cooler regions (spots) have reduced brightness; hotter regions have increased brightness.
+    dT ∝ -dCq (temperature decrease = brightness decrease).
+
+    Parameters
+    ----------
+    cq : np.ndarray
+        Base brightness for each grid cell, shape (N_cells,).
+    phase : float
+        Current rotational phase (cycles).
+    var : int
+        Variation model selector:
+        - 1: Gaussian profile (smooth peak with exponential tails)
+        - 2: Cosine² profile (even smoother, bounded)
+        - 3: Tanh profile (prevents unphysical brightness bounds)
+        - 4: Exponential profile (rapid evolution)
+    t : float, optional
+        Typical spot lifetime in rotation cycles (default 100.0).
+    kk : float, optional
+        Scaling parameter for phase-to-time conversion (default 10.0).
+    dphi : float, optional
+        Phase offset: center of feature at dphi (default 0.0).
+    dT : float, optional
+        Amplitude scale of epoch variation. 1.0 keeps the original modulation,
+        0.0 disables modulation, values >1 amplify modulation (default 1.0).
+
+    Returns
+    -------
+    ccq : np.ndarray
+        Modified brightness after epoch variation, shape (N_cells,).
+    dcq : np.ndarray
+        Partial derivative ∂ccq/∂cq for Jacobian computation, shape (N_cells,).
+    """
+    # Normalized phase offset
+    s = t / (np.sqrt(np.log(2.0)) * 2.0)
+    dd = (phase - dphi) / s if s > 0 else 0.0
+
+    def _apply_dt_scale(ccq_base: np.ndarray, dcq_base: np.ndarray) -> tuple:
+        # Scale the modulation amplitude while preserving backward compatibility at dT=1.
+        ccq = cq + dT * (ccq_base - cq)
+        dcq = 1.0 + dT * (dcq_base - 1.0)
+        return ccq, dcq
+
+    if var == 1:
+        # Gaussian profile: f(dd) = exp(-dd²)
+        f = np.exp(-(dd**2))
+        ccq_base = 1.0 - (1.0 - cq) * f
+        dcq_base = np.full_like(cq, f, dtype=np.float64)
+        return _apply_dt_scale(ccq_base, dcq_base)
+
+    elif var == 2:
+        # Cosine² profile: f(dd) = cos²(π·dd/2) for |dd| ≤ 1.0, else 0
+        if abs(dd) <= 1.0:
+            f = np.cos(np.pi * dd / 2.0)**2
+        else:
+            f = 0.0
+        ccq_base = 1.0 - (1.0 - cq) * f
+        dcq_base = np.full_like(cq, f, dtype=np.float64)
+        return _apply_dt_scale(ccq_base, dcq_base)
+
+    elif var == 3:
+        # Tanh profile: smooth phase transition, prevents negative brightness
+        ph0 = kk * np.log(kk)
+        # Handle edge case when cq ≈ 1.0 (xx ≈ 0, division by zero)
+        safe_xx = np.where(
+            np.abs(1.0 / cq - 1.0) < 1e-10, 1e-10, 1.0 / cq - 1.0)
+        zz = np.tanh(dd * ph0 * safe_xx) / safe_xx
+        fac = 1.0 + zz
+        ccq_base = 1.0 - (1.0 - cq) * fac
+        dcq_base = np.full_like(cq, 1.0,
+                                dtype=np.float64)  # Conservative Jacobian
+        return _apply_dt_scale(ccq_base, dcq_base)
+
+    elif var == 4:
+        # Exponential profile: multiplicative scaling
+        ph0 = kk * np.log(kk)
+        fac = np.exp(dd * ph0)
+        ccq_base = cq * fac
+        dcq_base = np.full_like(cq, fac, dtype=np.float64)
+        return _apply_dt_scale(ccq_base, dcq_base)
+
+    else:
+        # Default: no variation
+        return cq.copy(), np.ones_like(cq, dtype=np.float64)

@@ -69,3 +69,4 @@ gradio_tmp/
 .coverage
 htmlcov/
 tests/*.png
+results/*.png

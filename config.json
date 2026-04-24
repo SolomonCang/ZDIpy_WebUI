@@ -33,7 +33,15 @@
     "default_bright": 1,
     "max_bright": 1.01,
     "init_from_file": 0,
-    "init_file": "outBrightMap.dat"
+    "init_file": "outBrightMap.dat",
+    "epoch_variation": {
+      "enabled": 0,
+      "var_mode": 1,
+      "lifetime_cycles": 100,
+      "kk": 10,
+      "dphi": 0,
+      "dT": 1
+    }
   },
   "line_model": {
     "model_type": "unno",
@@ -44,7 +52,7 @@
     "wavelength_nm": 650,
     "line_strength": 5,
     "gauss_width_kms": 8,
-    "lorentz_width_fraction": 0.3,
+    "lorentz_width_fraction": 0.5,
     "lande_g": 1.2,
     "limb_darkening": 0.66,
     "gravity_darkening": 1,

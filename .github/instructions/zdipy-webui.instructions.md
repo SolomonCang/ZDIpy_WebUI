@@ -57,6 +57,7 @@ applyTo: ["**/*.py", "**/*.js", "**/*.css", "**/*.html", "config.json", "README.
 ## 编辑规范
 
 - 保持编辑最小化和局部化；不做风格性全局重写。
+- 旧 JF/Donati 代码的反向工程、输入映射、历史参数说明文档统一放在 `docs/JFcode/` 下；这类文档应优先记录源码位置、交互提示、物理含义和样例值，方便迁移到当前 `config.json` 体系。
 - 修改影响用户可见行为（命令行参数、配置键名、API 路径）时，同步更新 `README.md`。
 - 验证流程：`pip install -r requirements.txt` → `python -m pytest tests/ -q` → `python app.py` / `python app.py --cli --config config.json`。
 

@@ -241,6 +241,10 @@ Detailed physics, API reference, and algorithm notes for each submodule:
 - [`docs/halpha_compound_model.md`](docs/halpha_compound_model.md) — `core.line_models.halpha`: H-alpha 双峰复合 Voigt 模型（宽发射 + 窄自吸收，弱场近似），专为活跃恒星色球 H-alpha 轮廓设计，线性响应矩阵可预计算。
 - [`docs/MEM.md`](docs/MEM.md) — `core.mem`: Skilling & Bryan (1984) MEM 优化引擎，向量打包/解包、ZDI 专用响应矩阵组装、收敛监控。
 
+Legacy-code reverse-engineering notes:
+
+- [`docs/JFcode/cttszdi2_input_parameters.md`](docs/JFcode/cttszdi2_input_parameters.md) — CTTSzdi2 旧 C 程序 `zdipot` 的输入参数总表，按源码位置、提示语、物理含义和样例值整理，用于迁移旧 JF/Donati 工作流到当前配置体系。
+
 ---
 
 ## License

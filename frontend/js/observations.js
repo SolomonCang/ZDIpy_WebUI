@@ -143,7 +143,7 @@ let _obsRowCounter = 0;
 
 /**
  * Build a single <tr> for one observation entry.
- * @param {{filename:string, jdate:number, vel_center_kms:number, renormalize_wings:boolean}|null} entry
+ * @param {{filename:string, jdate:number, vel_center_kms:number, dT:number, renormalize_wings:boolean}|null} entry
  */
 function buildObsRow(entry) {
   const idx = ++_obsRowCounter;
@@ -153,6 +153,7 @@ function buildObsRow(entry) {
   const fn = entry ? escHtml(String(entry.filename))  : '';
   const jd = entry != null ? entry.jdate              : '';
   const rv = entry != null ? entry.vel_center_kms      : '';
+  const dt = entry != null ? (entry.dT ?? 1.0)         : 1.0;
   const rw = entry != null ? entry.renormalize_wings   : false;
 
   tr.innerHTML = `
@@ -179,6 +180,14 @@ function buildObsRow(entry) {
              value="${rv}"
              step="0.1"
              placeholder="-19.8" />
+    </td>
+    <td>
+      <input type="number"
+             class="field-input obs-dt"
+             value="${dt}"
+             step="0.1"
+             placeholder="1.0"
+             title="Per-observation epoch variation amplitude (dT)" />
     </td>
     <td style="text-align: center;">
       <input type="checkbox"
@@ -227,12 +236,16 @@ document.getElementById('obs-entries-tbody')?.addEventListener('click', e => {
 async function loadObsEditor() {
   const tbody   = document.getElementById('obs-entries-tbody');
   const jdateEl = document.getElementById('obs-jdate-ref');
+  const dphiEl  = document.getElementById('obs-epoch-dphi');
   if (!tbody) return;
 
   try {
     const cfg = await apiFetch('/api/config');
     const obs = cfg.observations || {};
+    const bri = cfg.brightness || {};
+    const ev = bri.epoch_variation || {};
     if (jdateEl) jdateEl.value = obs.jdate_ref ?? 2456892.015;
+    if (dphiEl) dphiEl.value = ev.dphi ?? 0.0;
 
     tbody.innerHTML = '';
     _obsRowCounter = 0;
@@ -307,6 +320,7 @@ async function saveObservations() {
   const statusEl = document.getElementById('obs-status');
   const tbody    = document.getElementById('obs-entries-tbody');
   const jdateEl  = document.getElementById('obs-jdate-ref');
+  const dphiEl   = document.getElementById('obs-epoch-dphi');
   if (!tbody) return;
 
   const rows  = Array.from(tbody.querySelectorAll('tr'));
@@ -318,6 +332,7 @@ async function saveObservations() {
     const fn = tr.querySelector('.obs-fn')?.value.trim()   ?? '';
     const jd = parseFloat(tr.querySelector('.obs-jdate')?.value ?? '');
     const rv = parseFloat(tr.querySelector('.obs-rv')?.value    ?? '');
+    const dt = parseFloat(tr.querySelector('.obs-dt')?.value    ?? '');
     const rw = tr.querySelector('.obs-rw')?.checked ?? false;
 
     if (!fn) {
@@ -335,10 +350,21 @@ async function saveObservations() {
       valid = false;
       return;
     }
-    files.push({ filename: fn, jdate: jd, vel_center_kms: rv, renormalize_wings: rw });
+    if (isNaN(dt)) {
+      setStatus(statusEl, `❌ Row ${i + 1}: dT must be a number.`, 'error');
+      valid = false;
+      return;
+    }
+    files.push({ filename: fn, jdate: jd, vel_center_kms: rv, dT: dt, renormalize_wings: rw });
   });
 
   if (!valid) return;
+
+  const dphi = parseFloat(dphiEl?.value ?? '0');
+  if (isNaN(dphi)) {
+    setStatus(statusEl, '❌ Epoch variation dphi must be a number.', 'error');
+    return;
+  }
 
   try {
     setStatus(statusEl, 'Saving…');
@@ -348,6 +374,9 @@ async function saveObservations() {
       jdate_ref: parseFloat(jdateEl?.value ?? cfg.observations?.jdate_ref ?? 0),
       files,
     };
+    cfg.brightness = cfg.brightness || {};
+    cfg.brightness.epoch_variation = cfg.brightness.epoch_variation || {};
+    cfg.brightness.epoch_variation.dphi = dphi;
     await apiFetch('/api/config', { method: 'PUT', body: cfg });
     setStatus(statusEl, `✔ Saved ${files.length} observation(s).`, 'ok');
     if (files.length) validateObsFiles();

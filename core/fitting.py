@@ -182,11 +182,34 @@ def mainFittingLoop(par,
             # 当前相位磁场向量
             vecMagCart = magGeom.getAllMagVectorsCart()
 
+            # ── 逐历元亮度变化修正（可选，基于CTTSzdi2算法）────────────
+            from core.brightnessGeom import epoch_brightness_scale  # noqa: PLC0415
+
             for nObs, _phase in enumerate(par.cycleList):
                 sGridView = listGridView[nObs]
                 spec = setSynSpec[nObs]
+
+                # 若启用逐历元亮度变化（dT修正），应用相位依赖调制
+                if getattr(par, 'epochVarEnabled', False):
+                    obs_dT = getattr(par, 'obsDT', None)
+                    if obs_dT is not None and len(obs_dT) > nObs:
+                        dt_val = float(obs_dT[nObs])
+                    else:
+                        dt_val = float(getattr(par, 'epochVarDT', 1.0))
+                    ccq, _ = epoch_brightness_scale(
+                        briMap.bright, _phase, getattr(par, 'epochVarMode', 1),
+                        getattr(par, 'epochVarT', 100.0),
+                        getattr(par, 'epochVarKK', 10.0),
+                        getattr(par, 'epochVarDphi', 0.0), dt_val)
+                    # 创建临时亮度图副本，避免污染原始 briMap
+                    import copy
+                    briMapEpoch = copy.copy(briMap)
+                    briMapEpoch.bright = ccq
+                else:
+                    briMapEpoch = briMap
+
                 spec.updateIntProfDeriv(sGridView, vecMagCart, dMagCart0,
-                                        briMap, lineData, par.calcDI,
+                                        briMapEpoch, lineData, par.calcDI,
                                         par.calcDV)
                 spec.convolveIGnumpy(par.instrumentRes)
 

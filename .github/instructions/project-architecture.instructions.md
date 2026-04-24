@@ -96,6 +96,7 @@ ZDIpy_WebUI/
 └── docs/
     ├── MEM.md                      # MEM 算法说明
     ├── halpha_compound_model.md    # H-alpha 双 Voigt 复合模型设计文档
+  ├── JFcode/                     # 旧 JF/Donati C 程序调研与输入映射文档
     ├── brightness_map.md           # 亮度图说明
     ├── line_models.md              # 谱线模型总览
     ├── magnetic_map.md             # 磁场图说明

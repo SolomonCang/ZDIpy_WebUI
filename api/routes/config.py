@@ -30,8 +30,31 @@ def _load_raw() -> Dict[str, Any]:
 
 @router.get("/config")
 def get_config() -> Dict[str, Any]:
-    """Return the current config.json as a JSON object."""
-    return _load_raw()
+    """Return the current config.json as a JSON object.
+    
+    Converts nested epoch_variation structure to flat frontend field names for compatibility.
+    """
+    cfg = _load_raw()
+
+    # Convert nested epoch_variation to flat frontend fields for the form
+    bri = cfg.get("brightness", {})
+    ev = bri.get("epoch_variation", {})
+    if ev:
+        # Map nested structure to flat keys
+        if "enabled" in ev:
+            bri["epoch_var_enabled"] = ev["enabled"]
+        if "var_mode" in ev:
+            bri["epoch_var_mode"] = ev["var_mode"]
+        if "lifetime_cycles" in ev:
+            bri["epoch_var_lifetime"] = ev["lifetime_cycles"]
+        if "kk" in ev:
+            bri["epoch_var_kk"] = ev["kk"]
+        if "dphi" in ev:
+            bri["epoch_var_dphi"] = ev["dphi"]
+        if "dT" in ev:
+            bri["epoch_var_dt"] = ev["dT"]
+
+    return cfg
 
 
 @router.put("/config")
@@ -50,6 +73,29 @@ def put_config(body: Dict[str, Any]) -> Dict[str, Any]:
         raise HTTPException(
             status_code=422,
             detail=f"Missing config sections: {sorted(missing)}")
+
+    # Convert flat frontend epoch_variation fields to nested structure
+    bri = body.get("brightness", {})
+    if "epoch_var_enabled" in bri or "epoch_var_mode" in bri or \
+         "epoch_var_lifetime" in bri or "epoch_var_kk" in bri or "epoch_var_dphi" in bri or "epoch_var_dt" in bri:
+        # Ensure nested epoch_variation dict exists
+        if "epoch_variation" not in bri:
+            bri["epoch_variation"] = {}
+        # Map flat keys to nested structure
+        if "epoch_var_enabled" in bri:
+            bri["epoch_variation"]["enabled"] = bri.pop("epoch_var_enabled")
+        if "epoch_var_mode" in bri:
+            bri["epoch_variation"]["var_mode"] = bri.pop("epoch_var_mode")
+        if "epoch_var_lifetime" in bri:
+            bri["epoch_variation"]["lifetime_cycles"] = bri.pop(
+                "epoch_var_lifetime")
+        if "epoch_var_kk" in bri:
+            bri["epoch_variation"]["kk"] = bri.pop("epoch_var_kk")
+        if "epoch_var_dphi" in bri:
+            bri["epoch_variation"]["dphi"] = bri.pop("epoch_var_dphi")
+        if "epoch_var_dt" in bri:
+            bri["epoch_variation"]["dT"] = bri.pop("epoch_var_dt")
+        body["brightness"] = bri
 
     # Attempt a lightweight ZDIConfig parse to catch value errors early
     try:

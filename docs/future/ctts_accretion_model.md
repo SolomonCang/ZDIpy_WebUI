@@ -1,115 +1,206 @@
-# CTTS 吸积模型移植设计方案
+# CTTS 双 Unno-Rachkovsky 吸积模型设计方案
 
-**参考实现**：`/Users/tianqi/Documents/Codes_collection/ZDI_and/CTTSzdi2/unno_ctts.c`  
-**目标模块**：`core/line_models/unno.py`  
+**参考实现**：`/Users/tianqi/Documents/Codes_collection/ZDI_and/CTTSzdi2/unno_ctts.c`（仅作兼容基线）  
+**主实现模块**：`core/line_models/unno.py`  
+**联动模块**：`pipeline/pipeline.py`、`config_loader.py`、`config.json`、`core/fitting.py`、`core/mem/zdi_adapter.py`、`frontend/js/config.js`（必要时还有 `api/routes/config.py` 与 `frontend/index.html`）  
 **状态**：设计草案，尚未实现
 
 ---
 
 ## 1. 物理背景与动机
 
-### 1.1 经典 T Tauri 星（CTTS）的特殊性
+### 1.1 经典 T Tauri 星（CTTS）的双层线形成
 
-经典 T Tauri 星（CTTS）处于磁控吸积阶段：来自吸积盘的物质沿磁力线
-下落至星面，在吸积热斑（accretion hot spot）处激发一个额外的**色球/吸积发射分量**，
-叠加在光球吸收轮廓之上。与弱 T Tauri 星（WTTS）和普通 MS 星不同，
-CTTS 的谱线轮廓由至少两个独立大气层贡献：
+经典 T Tauri 星（CTTS）处于磁控吸积阶段：来自吸积盘的物质沿磁力线下落至星面，
+在吸积热斑处激发额外的色球/吸积发射分量，并与光球吸收轮廓叠加。
+若色球层本身可观测到磁场，则局部轮廓不再适合写成“磁光球 + 非磁填充项”，
+而应视为两个**均可磁化**的大气层共同贡献：
 
-| 分量 | 来源 | 代表亮度 | 轮廓性质 |
+| 分量 | 来源 | 代表图像 | 轮廓性质 |
 |------|------|----------|----------|
-| 光球（磁区）| 恒星光球 + 表面磁场 | `Cq` | 磁 Milne-Eddington 吸收 |
-| 吸积/色球 | 热斑、色球发射 | `Cm` | 仅 π 分量（无有效 Zeeman 分裂）|
+| 光球分量 | 恒星光球 + 表面磁场 | `Cq` | 磁 Milne-Eddington 吸收（UR） |
+| 色球/吸积分量 | 热斑、后激波、磁化色球 | `Cm` | 磁 Milne-Eddington 发射/吸收（UR） |
 
-`Cm` 在空间上逐格点变化——吸积热斑处 `Cm` 极大，无吸积区域 `Cm ≈ 0`。
-正是通过联合反演 `Cm` 图和磁场图，才能把两种贡献解耦。
+`Cq` 主要追踪光球亮度或吸收深度，`Cm` 追踪色球/吸积层的局部发射强度或覆盖度。
+两者都可逐格点变化，并与同一套表面磁几何共同决定最终 Stokes I/V 轮廓。
 
-### 1.2 WTTS 模式对照
+### 1.2 为什么放弃“π-only 非磁色球”作为主模型
 
-弱 T Tauri 星（WTTS）同样可能存在色球贡献，但其物理图像更接近 MS 星，
-轮廓振幅仅依赖光球亮度对比度：
+旧方案把第二分量写成“仅 π 分量、无有效 Zeeman 分裂”的 Milne-Eddington 轮廓，
+这在色球偏振不可测时可作为低阶近似；一旦色球磁场本身进入观测，
+该近似就不再自洽，因为它默认：
 
-```
-# WTTS 模式（C 版被注释的代码）
-pmul = imul = 1 + 2*(Cm - defC)/defC   # defC = 0.999
-```
+1. 色球只改变 Stokes I，不直接生成自己的 Stokes V；
+2. 所有偏振都来自光球磁区；
+3. 色球与光球共享相同热力学参数，却不共享磁场响应。
 
-WTTS 模式的色球贡献比 CTTS 弱得多，此文档仅关注 CTTS 实现；
-WTTS 分支可在后续作为 `fac > 0` 时的扩展。
+因此，本文档将主方案改写为：
+
+- 光球分量：完整 Unno-Rachkovsky（UR）
+- 色球分量：完整 Unno-Rachkovsky（UR）
+- 旧的 π-only 分支：仅保留为 `legacy_pi` 兼容模式，用于历史对比
+
+### 1.3 建模原则
+
+为兼顾物理自洽与实现复杂度，第一阶段采用以下原则：
+
+1. **双 UR、单磁拓扑**：光球和色球都使用 UR 局部轮廓，但默认共用同一套表面磁场几何；
+   色球磁场通过独立的响应缩放控制，而不是立刻引入第二套独立磁图。
+2. **I 与 V 的比例允许不同**：Stokes I 的光球/色球权重与 Stokes V 的有效偏振权重分离。
+3. **色球参数独立**：色球分量允许拥有独立的 `beta`、Landé g、线强、展宽、连续谱比例。
+4. **逐步扩展**：若后续数据质量支持，再从“单磁拓扑”推广到“独立 chromospheric magnetic map”。
+
+### 1.4 工程边界说明
+
+这次改动的最小闭环并不是只改 `core/line_models/unno.py`。
+从当前代码结构看，双 UR 模式至少会贯穿以下几层：
+
+1. **前向模型层**：`core/line_models/unno.py`，负责参数容器、局部轮廓、盘积分和导数。
+2. **流水线装配层**：`pipeline/pipeline.py`，负责根据 `line_model.model_type='unno'` 构造 `lineDataUnno` 并调用 `getAllProfDirivUnno(...)`。
+3. **配置解析层**：`config_loader.py` 与 `config.json`，负责让 CLI / WebUI 都能读到新增 CTTS 参数。
+4. **反演接口层**：`core/fitting.py` 与 `core/mem/zdi_adapter.py`，负责把新增的 `C_m` 导数块和双 UR 磁响应装入响应矩阵。
+5. **前端 UI 层**：`frontend/js/config.js`，负责把新增参数暴露到 WebUI 表单；若字段组织方式变化，还需同步 `api/routes/config.py` 的保存/回填逻辑。
+
+因此，下文中的“目标模块”应理解为**以 `unno.py` 为核心的一组联动模块**，而不是单文件实现任务。
 
 ---
 
 ## 2. 数学与物理原理
 
-### 2.1 CTTS 双分量轮廓公式
+### 2.1 双 UR 局部轮廓公式
 
-设 `fac < 0` 为 CTTS 模式开关（`fac` 称为"轮廓乘子符号位"，
-其绝对值通常为 1，负号仅作标志）。
+对每个可见表面单元，分别计算光球和色球两个 UR 局部解：
 
-**连续谱归一化局部轮廓**：
+$$
+I_{\rm ph}(\lambda),\ V_{\rm ph}(\lambda),\ I_{\rm ch}(\lambda),\ V_{\rm ch}(\lambda)
+$$
 
-$$I(\lambda) = I_\text{mag}(\lambda) \cdot f_\text{fff} + I_\pi(\lambda) \cdot (1 - f_\text{fff})$$
+局部总 Stokes I 写为连续谱加权平均：
+
+$$
+I_{\rm loc}(\lambda) = \frac{c_{\rm ph} I_{\rm ph}(\lambda) + c_{\rm ch} I_{\rm ch}(\lambda)}{c_{\rm ph} + c_{\rm ch}}
+$$
+
+局部总 Stokes V 写为有效偏振通量之和，再用总连续谱归一化：
+
+$$
+V_{\rm loc}(\lambda) = \frac{p_{\rm ph} V_{\rm ph}(\lambda) + p_{\rm ch} V_{\rm ch}(\lambda)}{c_{\rm ph} + c_{\rm ch}}
+$$
 
 其中：
-- $f_\text{fff} = $ `fI`：磁活动区面积填充因子（通常 0.8–0.9）
-- $I_\text{mag}$：完整 Unno-Rachkovsky 磁轮廓（三 Zeeman 分量）
-- $I_\pi$：仅 $\pi$ 分量的非磁 Milne-Eddington 轮廓（色球/吸积模拟）
 
-**混合后的重缩放**（CTTS 核心操作）：
+- $c_{\rm ph}$：光球连续谱权重，建议写成 $c_{\rm ph} = C_q \cdot f_{\rm ph}^I$
+- $c_{\rm ch}$：色球连续谱/发射权重，建议写成 $c_{\rm ch} = C_m \cdot f_{\rm ch}^I$
+- $p_{\rm ph}$：光球有效偏振权重，建议写成 $p_{\rm ph} = C_q \cdot f_{\rm ph}^V$
+- $p_{\rm ch}$：色球有效偏振权重，建议写成 $p_{\rm ch} = C_m \cdot f_{\rm ch}^V$
 
-$$I_\text{CTTS}(\lambda) = p_\text{mul} \cdot |fac| \cdot \bigl[I(\lambda) - I_c\bigr] + I_c$$
+这里最关键的是：
 
-$$V_\text{CTTS}(\lambda) = fac \cdot p_\text{mul} \cdot V_\text{UR}(\lambda)$$
+$$
+\frac{p_{\rm ph}}{p_{\rm ch}} \neq \frac{c_{\rm ph}}{c_{\rm ch}}
+$$
 
-其中 $I_c = f_\text{fff} \cdot cont + (1 - f_\text{fff}) \cdot ccc$（双分量连续谱基准），
-$p_\text{mul}$ 为振幅乘子：
+这正是“Stokes I 和 V 的光球/色球比例不必相同”的数学实现。
+物理上，`p` 与 `c` 分离意味着未分辨磁区抵消、不同形成高度、不同偏振效率都可以被吸收进模型。
 
-$$p_\text{mul} = \frac{10 \cdot (C_\text{def} - C_m)}{C_\text{def}} + 1, \qquad C_\text{def} = 0.999$$
+### 2.2 光球与色球各自的 UR 分量
 
-$$C_m = \begin{cases} \min(C_m^i,\; C_\text{def}) & C_m^i \geq 0 \\ C_q^i & C_m^i < 0 \end{cases}$$
+对任一分量 $j \in \{{\rm ph}, {\rm ch}\}$，其局部轮廓由标准 UR 方程给出：
 
-**物理解读**：当 `Cm` 接近 `defC`（最大亮度，强吸积）时，`pmul → 1`，
-轮廓受到强烈重缩放，等效于发射填充使吸收深度变浅；
-当 `Cm → 0`（无吸积）时，`pmul → 11`，轮廓深度正常。
+$$
+\frac{I_j}{I_{c,j}} = \frac{1 + \beta_j \mu \cdot \eta_{I,j}(\eta_{I,j}^2 + \rho_{Q,j}^2 + \rho_{V,j}^2)/\Delta_j}{1 + \beta_j \mu}
+$$
 
-### 2.2 π-only 非磁 Milne-Eddington 轮廓
+$$
+\frac{V_j}{I_{c,j}} = -\frac{\beta_j \mu}{1 + \beta_j \mu} \cdot \frac{\eta_{V,j}\eta_{I,j}^2 + \rho_{V,j}(\eta_{Q,j}\rho_{Q,j} + \eta_{V,j}\rho_{V,j})}{\Delta_j}
+$$
 
-第二分量 $I_\pi$ 仅使用 $\pi$ 线（Zeeman 分裂为零的线心分量）：
+其中每个分量都拥有独立参数：
 
-$$I_\pi(\lambda) = \frac{1 + \beta / (1 + \eta_0 H_\pi) }{1 + \beta}$$
+- `beta_ph`, `beta_ch`
+- `line_strength_ph`, `line_strength_ch`
+- `gauss_width_ph_kms`, `gauss_width_ch_kms`
+- `lorentz_width_ph_fraction`, `lorentz_width_ch_fraction`
+- `lande_g_ph`, `lande_g_ch`
+- `continuum_scale_ph`, `continuum_scale_ch`
 
-其中 $H_\pi = H(a, \nu)$ 为不做 Zeeman 移位的 Voigt 函数，
-$\eta_0$ = `ldata.str`，$\beta$ = `ldata.beta`。
-这模拟了一个无磁场、但有相同热力学结构（ME 大气）的色球层。
+色球分量通常满足：
 
-### 2.3 Stokes I 和 V 对 Cm 的导数
+- `beta_ch < 0`：温度逆转，对应发射线形成
+- `limb_darkening_ch <= 0`：可能出现临边增亮
+- `gauss_width_ch_kms > gauss_width_ph_kms`：色球/吸积区速度场更宽
 
-由于 `pmul` 依赖 $C_m$，对 $C_m$ 的导数为：
+### 2.3 单磁拓扑近似与后续扩展
 
-$$\frac{\partial p_\text{mul}}{\partial C_m} = -\frac{10}{C_\text{def}}$$
+第一阶段不立刻引入独立色球磁图，而是令两分量共享同一套表面磁几何：
 
-因此：
+$$
+\mathbf{B}_{\rm ch} = \kappa_{\rm ch} \cdot \mathbf{B}_{\rm surf}
+$$
 
-$$\frac{\partial I_\text{CTTS}}{\partial C_m^i} = |fac| \cdot \frac{\partial p_\text{mul}}{\partial C_m} \cdot (I(\lambda) - I_c) \cdot \delta_{ii'}$$
+其中 $\kappa_{\rm ch}$ 为色球磁响应缩放因子，可取常数，也可后续推广为图像量。
 
-$$\frac{\partial V_\text{CTTS}}{\partial C_m^i} = fac \cdot \frac{\partial p_\text{mul}}{\partial C_m} \cdot V_\text{UR}(\lambda) \cdot \delta_{ii'}$$
+这样做的优点：
 
-这些导数（逐格点，形状 `(N_cells, N_vel)`）需打包进 MEM 响应矩阵，
-与现有 $\partial I / \partial C_q^i$（即 `dIcsum`）并列为图像向量中的两列块。
+1. 不需要把球谐系数数量立刻翻倍；
+2. 可以先验证“双 UR + 分离 I/V 权重”是否足以解释数据；
+3. 保持与现有 MEM/响应矩阵接口更接近。
+
+若未来需要独立色球磁图，则再改为：
+
+$$
+\mathbf{B}_{\rm ph} \neq \mathbf{B}_{\rm ch}
+$$
+
+此时图像向量和响应矩阵才需要显式拆成两套磁场系数块。
+
+### 2.4 对 `Cq`、`Cm` 和磁参数的导数
+
+双 UR 结构下，`Cm` 不再只是旧 `pmul` 的缩放器，而直接进入权重：
+
+$$
+I_{\rm loc} = \frac{c_{\rm ph} I_{\rm ph} + c_{\rm ch} I_{\rm ch}}{c_{\rm ph} + c_{\rm ch}}
+$$
+
+因此对 `Cq`、`Cm` 的导数需要同时包含：
+
+1. 权重本身变化的贡献；
+2. 归一化分母变化的贡献；
+3. 若 `Cq`、`Cm` 还控制局部连续谱，则额外的连续谱项；
+4. 若 `\kappa_{\rm ch}` 与 `Cm` 耦合，则还有磁响应链式导数。
+
+对共享磁拓扑的第一阶段，响应矩阵仍可写成：
+
+$$
+R_{\rm phase1} = [R_{C_q} \mid R_{C_m} \mid R_{B_{\rm sph}}]
+$$
+
+其中：
+
+- $R_{C_q}$：光球亮度/吸收图导数块
+- $R_{C_m}$：色球发射/覆盖图导数块
+- $R_{B_{\rm sph}}$：共享磁球谐系数导数块，但其内容已同时包含光球和色球两分量的 UR 响应
+
+若未来进入独立色球磁图阶段，则升级为：
+
+$$
+R_{\rm phase2} = [R_{C_q} \mid R_{C_m} \mid R_{B_{\rm ph}} \mid R_{B_{\rm ch}}]
+$$
 
 ---
 
 ## 3. 代码架构方案
 
-### 3.1 现有路由机制（不改动）
+### 3.1 现有路由机制保持不变
 
-Pipeline 通过 `lineData` 对象类型选择盘积分类：
+Pipeline 仍然通过 `lineData` 对象类型选择盘积分实现：
 
 ```python
 # pipeline.py — 构造时选模型
 if par.line_model_type == 'unno':
-    lineData = lineDataUnno.from_parameters(...)   # 触发 UR 路径
+    lineData = lineDataUnno.from_parameters(...)
 else:
-    lineData = lineData.from_parameters(...)        # 触发 Voigt 路径
+    lineData = lineData.from_parameters(...)
 
 # line_utils.py — 运行时路由（已存在）
 if isinstance(lineData, lineDataUnno):
@@ -118,286 +209,437 @@ else:
     DiskIntCls = diskIntProfAndDeriv
 ```
 
-添加 CTTS 后，**此路由代码无需任何修改**。
-CTTS 模式通过 `lineDataUnno.fac < 0` 在 `_unno_profile` 内部分支，
-对 pipeline 完全透明。
+CTTS 的双 UR 模式不需要改变这层路由；只需在 `lineDataUnno` 内部区分：
 
-### 3.2 图像向量扩展
+- `standard_unno`
+- `dual_ur_ctts`
+- `legacy_pi`（兼容近似）
 
-C 版图像向量结构（5 个分量块）：
+### 3.2 `lineDataUnno` 的参数重构
 
+现有 `lineDataUnno` 只有一组 UR 参数，不足以表达双层大气。
+建议引入“分量参数”概念，例如：
+
+```python
+@dataclass
+class URComponentParams:
+    beta: float
+    line_strength: float
+    gauss_width_kms: float
+    lorentz_width_fraction: float
+    lande_g: float
+    limb_darkening: float
+    continuum_scale: float
 ```
-image = [ Cq_0..N,  Cm_0..N,  Br_0..N,  Bt_0..N,  Bp_0..N ]
-          imsw[0]   imsw[1]   imsw[2]   imsw[3]   imsw[4]
+
+`lineDataUnno` 则持有：
+
+```python
+self.photosphere: URComponentParams
+self.chromosphere: URComponentParams | None
+self.filling_factor_I_ph: float
+self.filling_factor_I_ch: float
+self.filling_factor_V_ph: float
+self.filling_factor_V_ch: float
+self.chromosphere_B_scale: float
+self.ctts_mode: str   # 'none' | 'dual_ur' | 'legacy_pi'
 ```
 
-Python 版现有图像向量只含 `Cq`（亮度）+ 球谐系数。
-引入 CTTS 后需增加 `Cm` 块，MEM 响应矩阵 $R$ 增加 $N_\text{cells}$ 列：
+这样做比继续堆叠 `fac`、`Cm_default` 等历史字段更清晰，也更接近真实物理。
 
+### 3.3 `_unno_profile` 的拆分方式
+
+建议把当前 `_unno_profile` 拆成两层：
+
+```python
+def _unno_profile_component(
+    params: URComponentParams,
+    wls: np.ndarray,
+    view_angle: np.ndarray,
+    Bmod: np.ndarray,
+    Btheta: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    ...
+
+def _unno_profile_ctts(
+    ldata: lineDataUnno,
+    wls: np.ndarray,
+    view_angle: np.ndarray,
+    Bmod: np.ndarray,
+    Btheta: np.ndarray,
+    Cq: np.ndarray,
+    Cm: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    ...
 ```
-R_extended = [ R_Cq | R_Cm | R_Bsph ]
-               (m×N)  (m×N)  (m×K)
+
+其中：
+
+1. `_unno_profile_component` 只负责单一 UR 分量求解；
+2. `_unno_profile_ctts` 调两次 `_unno_profile_component`，分别得到光球和色球轮廓；
+3. 最后按照 `c_ph`, `c_ch`, `p_ph`, `p_ch` 组合成总 `I` 和 `V`。
+
+`legacy_pi` 则作为 `_unno_profile_ctts(..., mode='legacy_pi')` 的一个退化分支保留。
+
+### 3.4 `localProfileAndDerivUnno.updateProfDeriv`
+
+该函数需从“单分量 + 混合填充因子”改成“显式双分量求和”：
+
+```python
+Iph, Vph = _unno_profile_component(... photosphere ...)
+Ich, Vch = _unno_profile_component(... chromosphere ...)
+
+c_ph = bright_q * fI_ph
+c_ch = bright_m * fI_ch
+p_ph = bright_q * fV_ph
+p_ch = bright_m * fV_ch
+
+I_unscaled = (c_ph * Iph + c_ch * Ich) / (c_ph + c_ch)
+V_unscaled = (p_ph * Vph + p_ch * Vch) / (c_ph + c_ch)
 ```
 
-其中 $m$ = 总数据点数，$N$ = 格点数，$K$ = 球谐系数数。
+随后导数需要同步更新：
 
-### 3.3 熵函数选择
+- `dI/dCq`
+- `dI/dCm`
+- `dV/dCq`
+- `dV/dCm`
+- `dI/dB`
+- `dV/dB`
 
-`Cm` 在物理上有界于 $[0, C_\text{def}]$，
-应使用 MEM 的**有界熵**（对应 C 版 `mem_nl.c` 中 `n1 ≤ j < n2` 段）：
+与旧方案不同，`dV/dCm` 不再只是标量振幅导数，而包含色球磁分量本身的偏振响应。
 
-$$S_{C_m} = -\sum_i w_i \left[ C_m^i \ln\frac{C_m^i}{C_C} + (A - C_m^i)\ln\frac{A - C_m^i}{A - C_C} \right]$$
+### 3.5 图像向量与 MEM 的阶段划分
 
-其中 $C_C = C_\text{def} \cdot A$。
-这与现有 `mem.py` 的 `n1`/`n2` 分区对应，增加一个区段即可。
+第一阶段建议**不修改磁场图像向量维度**，仅保留：
+
+```text
+image = [ Cq_0..N, Cm_0..N, Br/Bt/Bp spherical coefficients ]
+```
+
+这样能把开发风险限制在前向模型和导数组合上。
+
+第二阶段若需要独立色球磁图，再升级为：
+
+```text
+image = [ Cq_0..N, Cm_0..N, Bph_sph_coeff, Bch_sph_coeff ]
+```
+
+因此本文档把“双 UR”与“双磁图”明确区分：
+
+- **当前要实现的是双 UR**
+- **独立双磁图是后续扩展，不是本次最小闭环**
+
+### 3.6 `pipeline.py` 与配置系统
+
+`pipeline.py` 本身不需要改动模型选择框架，但仍属于**必须同步修改**的链路节点：
+
+1. `pipeline/pipeline.py` 需要把新的色球参数透传给 `lineDataUnno.from_parameters(...)`；
+2. `config_loader.py` 需要把新增 `line_model.*` 字段解析为 `par` 属性；
+3. `config.json` 需要提供默认值；
+4. `frontend/js/config.js` 需要把这些字段渲染到 WebUI；
+5. 若前端采用新的嵌套结构或别名，还要同步 `api/routes/config.py` 的读写映射。
+
+建议在 `config.json` / `config_loader.py` / `frontend/js/config.js` 中新增：
+
+```json
+"line_model": {
+  "model_type": "unno",
+  "ctts_mode": "dual_ur",
+  "chromosphere_beta": -0.5,
+  "chromosphere_line_strength": 0.6,
+  "chromosphere_gauss_width_kms": 20.0,
+  "chromosphere_lorentz_width_fraction": 0.02,
+  "chromosphere_lande_g": 1.0,
+  "chromosphere_limb_darkening": -0.3,
+  "chromosphere_continuum_scale": 1.0,
+  "filling_factor_I_ph": 1.0,
+  "filling_factor_I_ch": 1.0,
+  "filling_factor_V_ph": 1.0,
+  "filling_factor_V_ch": 0.5,
+  "chromosphere_B_scale": 1.0,
+  "legacy_pi_mode": false
+}
+```
+
+其中：
+
+- `filling_factor_I_*` 控制 Stokes I 的层权重
+- `filling_factor_V_*` 控制 Stokes V 的有效偏振权重
+- `chromosphere_B_scale` 控制色球分量对共享磁图的响应强度
 
 ---
 
 ## 4. 预期实现目标
 
-1. **前向模型正确性**：对给定 `(Cq, Cm, B, γ, χ)` 的合成轮廓与 C 版 `zdipot` 输出一致（数值偏差 < 0.1%）。
-
-2. **`Cm` 参与反演**：`fitcm > 0` 时 `Cm` 图经 MEM 迭代优化，与磁场图联合反演。
-
-3. **`fitcm = 0` 向后兼容**：当 `fac >= 0` 或 `fitcm = 0` 时，代码退化为现有标准 UR 路径，不影响非 CTTS 数据集。
-
-4. **无 pipeline 改动**：`pipeline.py`、`fitting.py`、`mem/` 等模块的对外接口保持不变。
-
-5. **填充因子 `fI` 可配置**：现有 C 版 `fff` 在代码中按星名硬编码；Python 版通过 `lineDataUnno.fI`（config.json 字段）动态配置。
+1. **主模型升级为双 UR**：光球和色球都用 UR 局部解，不再默认色球非磁。
+2. **I/V 权重可分离**：允许色球在 Stokes I 中强、在 Stokes V 中弱，或反之。
+3. **`Cm` 同时进入 I 和 V**：`Cm` 不再只是吸收深度的经验缩放器，而直接参与色球分量的连续谱和偏振权重。
+4. **保持向后兼容**：当 `ctts_mode='none'` 或所有色球权重为 0 时，退化为现有标准 UR；当 `legacy_pi_mode=true` 时，保留历史近似用于对照。
+5. **第一阶段不翻倍磁自由度**：先共用同一套磁场几何，验证物理收益；必要时再扩展为独立色球磁图。
 
 ---
 
 ## 5. 具体改动方案
 
-### 5.1 `lineDataUnno`（`core/line_models/unno.py`）
+### 5.1 `core/line_models/unno.py`
 
-**新增字段**：
+#### 5.1.1 参数层
 
-| 字段 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `fac` | `float` | `1.0` | `< 0` 启用 CTTS 模式；`|fac|` 通常为 1 |
-| `Cm_default` | `float` | `0.0` | `fitcm=0` 时全星面使用的固定 `Cm` 值 |
+- 为 `lineDataUnno` 增加 `photosphere` 与 `chromosphere` 两套参数；
+- 新增 `ctts_mode`、`filling_factor_I_ph/ch`、`filling_factor_V_ph/ch`、`chromosphere_B_scale`；
+- 将旧 `fac`、`Cm_default` 归入 `legacy_pi` 路径，不再作为主路径核心参数。
 
-**`from_parameters` 新增参数**：
+#### 5.1.2 轮廓层
 
-```python
-@classmethod
-def from_parameters(
-    cls,
-    ...,                            # 现有参数不变
-    fac: float = 1.0,               # 新增
-    Cm_default: float = 0.0,        # 新增
-) -> "lineDataUnno":
-```
+- 抽取 `_unno_profile_component()` 作为单分量求解器；
+- 新增 `_unno_profile_ctts()` 负责双分量组合；
+- `legacy_pi` 分支仅在显式启用时调用旧逻辑。
 
-**`from_file` 新增列解析**：文件格式第 11 列读取 `fac`，第 12 列读取 `Cm_default`。
+#### 5.1.3 导数层
 
----
+- `localProfileAndDerivUnno` 输出 `dI/dCq`、`dI/dCm`、`dV/dCq`、`dV/dCm`；
+- 共享磁图阶段，`dI/dB`、`dV/dB` 已自然包含光球和色球两层贡献；
+- 若 `chromosphere_B_scale` 可调，也可为其增加全局导数，用于后续参数拟合。
 
-### 5.2 `_unno_profile`（内部函数）
+### 5.2 `diskIntProfAndDerivUnno`
 
-**新增参数**：
+需要新增或重定义以下输出：
 
 ```python
-def _unno_profile(
-    width_gauss: float,
-    width_lorentz: float,
-    ldata: "lineDataUnno",
-    wls: np.ndarray,          # (N_vel, N_cells)
-    view_angle: np.ndarray,   # (N_cells,)
-    Bmod: np.ndarray,         # (N_cells,)
-    Btheta: np.ndarray,       # (N_cells,)
-    Cm: np.ndarray | None = None,   # (N_cells,) — 新增，CTTS 吸积亮度
-) -> tuple[np.ndarray, np.ndarray]:
+self.dIIcQ    # dI/dCq
+self.dIIcM    # dI/dCm
+self.dVdQ     # dV/dCq
+self.dVdM     # dV/dCm
+self.dVIc     # dV/d(mag coeff)
+self.dImag    # dI/d(mag coeff)
 ```
 
-**新增 CTTS 分支**（在返回前插入）：
+其中 `dIIcM` 与 `dVdM` 将直接接入 MEM 响应矩阵的 `Cm` 列块。
 
-```python
-_DEFC = 0.999
-fac_val = float(ldata.fac)
+### 5.3 `core/fitting.py` 与 `core/mem/`
 
-if fac_val < 0.0 and Cm is not None:
-    # 1. 计算 π-only 非磁轮廓（第二分量）
-    etaI_pi = 1.0 + eta_half * eta_P          # (N_vel, N_cells)，仅 π 分量
-    beta_mu = float(ldata.beta[0]) * mu       # (N_cells,)
-    safe_denom = np.where(np.abs(1.0 + beta_mu) > 1e-14, 1.0 + beta_mu, 1e-14)
-    sI_pi = (1.0 + beta_mu / etaI_pi) / safe_denom   # (N_vel, N_cells)
+第一阶段的响应矩阵扩展为：
 
-    # 2. 双分量混合
-    fI_val = float(ldata.fI[0])
-    I_mix = sI * fI_val + sI_pi * (1.0 - fI_val)     # (N_vel, N_cells)
-
-    # 3. 连续谱基准（两分量等效于 1.0，因为 sI 和 sI_pi 均已归一化）
-    I_cont = fI_val * 1.0 + (1.0 - fI_val) * 1.0     # = 1.0，保留以便扩展
-
-    # 4. 按亮度对比计算逐格点 pmul
-    br = np.where(Cm >= 0.0, np.minimum(Cm, _DEFC), np.clip(-Cm, 0.0, _DEFC))
-    # 注：Cm < 0 退回 Cq 的逻辑在调用侧处理，此处只确保在界内
-    pmul = 10.0 * (_DEFC - br) / _DEFC + 1.0          # (N_cells,)
-
-    # 5. 重缩放（|fac| 通常为 1，fac 为负只作标志）
-    abs_fac = abs(fac_val)
-    sI_out = pmul * abs_fac * (I_mix - I_cont) + I_cont
-    sV_out = fac_val * pmul * sV                       # fac < 0 → V 翻号
-
-    return sI_out, sV_out
-
-# 标准路径（原有代码，不变）
-return sI, sV
+```text
+R = [ R_Cq | R_Cm | R_Bsph ]
 ```
 
-**返回 pmul 供导数使用**：若后续需要解析导数，
-可将返回签名改为 `(sI, sV, pmul)`；若仅用数值差分则不需要。
+与旧方案相比，变化在于：
 
----
+- `R_Cm` 现在同时影响 I 和 V；
+- `R_Bsph` 现在包含双 UR 的联合磁响应；
+- 熵函数部分仍可保持 `Cq` 与 `Cm` 两段图像块设计。
 
-### 5.3 `localProfileAndDerivUnno.updateProfDeriv`
+`Cm` 仍建议使用有界熵，因为它表示色球发射强度或覆盖度，应满足正定和上限约束。
 
-**新增参数** `Cm_map: np.ndarray | None = None`（形状 `(N_cells,)`）。
+这里建议把 `core/mem/` 的影响进一步具体化为 `core/mem/zdi_adapter.py`：
 
-**修改 Stokes I/V 混合段**：
+- `packImageVector()` / `unpackImageVector()` 需要确认 `Cq`、`Cm` 图像块与现有亮度图像布局兼容；
+- `packResponseMatrix()` 需要明确 `R_Cm` 进入 I 与 V 两个观测块，而不是只影响 I；
+- 若 `Cm` 继续使用填充因子熵，还要确认 `n1/n2` 分段与权重设置仍然正确。
 
-```python
-# 原有
-I_unscaled = sI * fI_val + self.sI0 * (1.0 - fI_val)
-V_unscaled = sV * fV_val
+### 5.4 `pipeline.py`
 
-# 替换为：
-if getattr(ldata, 'fac', 1.0) < 0.0 and Cm_map is not None:
-    sI, sV = _unno_profile(..., Cm=Cm_map)  # 含 CTTS 重缩放
-    I_unscaled = sI   # 已在 _unno_profile 内完成混合
-    V_unscaled = sV
-else:
-    # 原有逻辑
-    I_unscaled = sI * fI_val + self.sI0 * (1.0 - fI_val)
-    V_unscaled = sV * fV_val
-```
-
-**新增 `dI/dCm` 和 `dV/dCm` 导数输出**（数值差分）：
-
-```python
-if ctts_mode and calcDI:
-    eps_cm = 0.01
-    # 对整体 Cm_map + eps 计算差分（逐格点可用稀疏扰动优化）
-    sI_p, sV_p = _unno_profile(..., Cm=Cm_map + eps_cm)
-    # dI/dCm[i] 为 (N_vel,) 向量，i 为格点索引
-    self.dIdCm = contin[np.newaxis,:] * (sI_p - sI) / eps_cm * inv_ic  # (N_vel, N_cells)
-    self.dVdCm = contin[np.newaxis,:] * (sV_p - sV) / eps_cm * inv_ic
-else:
-    self.dIdCm = 0
-    self.dVdCm = 0
-```
-
-**注意**：上述全局扰动实际上计算的是所有格点同时偏移，
-而 MEM 需要的是 $\partial F_k / \partial C_m^i$（单格点偏移）。
-正确做法是逐格点差分，但 $N_\text{cells}$ 次 `_unno_profile` 调用代价高昂。
-由于 `pmul` 对各格点独立，解析导数更高效：
-
-$$\frac{\partial I_k}{\partial C_m^i} = |fac| \cdot \frac{\partial p_\text{mul}^i}{\partial C_m^i} \cdot (I_\text{mix}^i(\lambda_k) - I_c) \cdot \text{scale}^i / I_c^\text{tot}$$
-
-$$= |fac| \cdot \left(-\frac{10}{C_\text{def}}\right) \cdot (I_\text{mix}^i - I_c) \cdot \text{scale}^i / I_c^\text{tot}$$
-
-形状为 `(N_cells, N_vel)`，与 `dIcsum` 结构完全一致，可直接追加到 `dIcsum` 后。
-
----
-
-### 5.4 `diskIntProfAndDerivUnno`
-
-**新增属性**：
-
-```python
-self.dIIcCm = self.prof.dIdCm   # (N_cells, N_vel) — dI/dCm，供 packResponseMatrix
-self.dVdCm  = self.prof.dVdCm   # (N_cells, N_vel)
-```
-
-`updateIntProfDeriv` 中透传 `Cm_map`：
-
-```python
-def updateIntProfDeriv(self, ..., Cm_map=None):
-    ...
-    self.prof.updateProfDeriv(..., Cm_map=Cm_map)
-    ...
-    self.dIIcCm = self.prof.dIdCm
-    self.dVdCm  = self.prof.dVdCm
-```
-
----
-
-### 5.5 `pipeline.py`
-
-仅在 `unno` 路径的 `lineDataUnno.from_parameters(...)` 调用中增加两个参数：
+只需透传新增参数，不改变模型选择逻辑：
 
 ```python
 lineData = lineprofile.lineDataUnno.from_parameters(
-    ...,                                               # 现有参数
-    fac=getattr(par, 'unno_fac', 1.0),                # 新增
-    Cm_default=getattr(par, 'unno_Cm_default', 0.0),  # 新增
+    ...,  # 现有光球参数
+    ctts_mode=getattr(par, 'ctts_mode', 'none'),
+    chromosphere_beta=getattr(par, 'chromosphere_beta', -0.5),
+    chromosphere_line_strength=getattr(par, 'chromosphere_line_strength', 0.0),
+    chromosphere_gauss_width_kms=getattr(par, 'chromosphere_gauss_width_kms', 20.0),
+    chromosphere_lorentz_width_fraction=getattr(par, 'chromosphere_lorentz_width_fraction', 0.02),
+    chromosphere_lande_g=getattr(par, 'chromosphere_lande_g', 1.0),
+    filling_factor_I_ph=getattr(par, 'filling_factor_I_ph', 1.0),
+    filling_factor_I_ch=getattr(par, 'filling_factor_I_ch', 1.0),
+    filling_factor_V_ph=getattr(par, 'filling_factor_V_ph', 1.0),
+    filling_factor_V_ch=getattr(par, 'filling_factor_V_ch', 0.5),
+    chromosphere_B_scale=getattr(par, 'chromosphere_B_scale', 1.0),
 )
 ```
 
-当 `fac >= 0`（默认值 1.0）时，代码完全走标准 UR 路径，无任何行为变化。
+### 5.5 配置与前端
 
----
+这部分不是外围收尾，而是第一阶段的**必做项**。需要同步更新：
 
-### 5.6 `config.json` 新增字段
+- `config.json`
+- `config_loader.py`
+- `frontend/js/config.js`
+- 如涉及 API 保存/读取字段映射，再同步 `api/routes/config.py`
+- 若前端静态资源版本号需要刷新，再同步 `frontend/index.html`
 
-在 `"spectral_line"` 块中追加（所有字段均有缺省值，向后兼容）：
+其中前端 UI 需要明确解决两件事：
 
-```json
-"spectral_line": {
-    "model_type": "unno",
-    ...
-    "unno_fac": -1.0,
-    "unno_Cm_default": 0.0,
-    "unno_fit_Cm": true
-}
+1. 让 `ctts_mode='none' | 'dual_ur' | 'legacy_pi'` 驱动条件显隐；
+2. 将光球与色球参数分组展示，避免把新参数直接堆入现有单层 UR 字段区，造成语义混淆。
+
+对外暴露的最低必要字段是：
+
+1. `ctts_mode`
+2. `chromosphere_beta`
+3. `chromosphere_line_strength`
+4. `chromosphere_gauss_width_kms`
+5. `chromosphere_lande_g`
+6. `filling_factor_I_ph`
+7. `filling_factor_I_ch`
+8. `filling_factor_V_ph`
+9. `filling_factor_V_ch`
+10. `chromosphere_B_scale`
+
+### 5.6 兼容模式
+
+为了与历史结果对照，建议保留两个兼容开关：
+
+```text
+ctts_mode = 'none'       -> 现有标准 UR
+ctts_mode = 'dual_ur'    -> 新主模型
+ctts_mode = 'legacy_pi'  -> 旧 π-only 非磁色球近似
 ```
+
+这样既能做 A/B 测试，也能量化“色球磁化”对拟合的提升幅度。
+
+### 5.7 模式对应关系与退化条件
+
+这三种模式之间应明确区分“严格等价”和“参数极限下近似等价”：
+
+| 目标行为 | 推荐模式 | 是否严格等价 | 说明 |
+|----------|----------|--------------|------|
+| 现有标准单层 UR | `ctts_mode='none'` | 是 | 直接关闭色球分量，完全退化回当前 `lineDataUnno` 路径 |
+| 历史 `π-only` 非磁色球近似 | `ctts_mode='legacy_pi'` | 是 | 保留旧公式与旧组合方式，用于回归测试与历史结果复现 |
+| 双 UR 主模型 | `ctts_mode='dual_ur'` | 是 | 光球与色球都使用 UR 分量，是新的主物理模型 |
+| 用双 UR 模式逼近旧 `π-only` 行为 | `ctts_mode='dual_ur'` + 参数约束 | 否，仅近似 | 可让色球几乎不产生 Zeeman 分裂和 Stokes V，但代数上不等同于“只保留 π 分量” |
+
+原因在于：`dual_ur` 的色球分量仍然通过完整 UR 方程计算，
+即使令 Zeeman 分裂趋近于零，它也会退化成“零分裂极限下的完整非磁 UR”，
+而不是字面意义上从不透明度表达式中删去两个 `\sigma` 分量。
+因此，若目标是逐公式复现旧模型，必须保留 `legacy_pi`；
+若目标只是让新架构在数值行为上逼近旧结果，则可通过参数极限实现。
+
+#### 5.7.1 `dual_ur` 到 `none` 的严格退化
+
+当满足以下条件时，`dual_ur` 应与 `none` 模式数值一致：
+
+```text
+filling_factor_I_ch = 0
+filling_factor_V_ch = 0
+chromosphere_line_strength = 0
+```
+
+更稳妥的实现方式是：一旦检测到色球分量所有权重为零，就直接短路到现有单层 UR 路径。
+这样可以避免数值噪声，也让回归测试更直接。
+
+#### 5.7.2 `dual_ur` 逼近 `legacy_pi` 的推荐参数
+
+若希望在不切换到 `legacy_pi` 分支的前提下，让双 UR 行为尽可能接近旧的“仅 `\pi` 分量、无有效 Zeeman 分裂”色球近似，可使用：
+
+```text
+ctts_mode = 'dual_ur'
+chromosphere_B_scale = 0
+chromosphere_lande_g = 0
+filling_factor_V_ch = 0
+beta_ch < 0
+chromosphere_line_strength = 重新标定
+```
+
+这组参数的含义是：
+
+1. `chromosphere_B_scale = 0`：色球不响应共享磁场；
+2. `chromosphere_lande_g = 0`：即使实现层未显式短路，也让 Zeeman 分裂量趋于零；
+3. `filling_factor_V_ch = 0`：强制色球不直接贡献 Stokes V；
+4. `beta_ch < 0`：保留色球发射层的热力学特征；
+5. `chromosphere_line_strength` 需要重新拟合，因为“零分裂极限的完整 UR”与“字面 `π-only` 近似”在线强归一上 generally 不完全一致。
+
+#### 5.7.3 为什么这只能是近似，不是严格相同
+
+旧 `legacy_pi` 路径的本质是“人为指定第二分量只含 `\pi` 线”；
+而 `dual_ur` 的零分裂极限本质是“`\pi` 与两个 `\sigma` 分量在同一线心完全并合”。
+
+因此二者会在以下方面保留差异：
+
+1. 局部吸收系数的组合权重；
+2. 线强参数与连续谱归一化的等效定义；
+3. 极端参数下的线心深度/峰强标定；
+4. 若实现保留 `rho` 项或数值差分导数，导数结构也不完全相同。
+
+结论是：
+
+- **要严格复现历史 `π-only` 行为，用 `legacy_pi`**
+- **要让新架构平滑逼近旧行为，用 `dual_ur` 参数极限**
+- **要做物理分析和正式拟合，优先使用 `dual_ur`**
 
 ---
 
 ## 6. 实现顺序建议
 
-1. 添加 `lineDataUnno.fac` 和 `Cm_default` 字段（低风险，不影响现有路径）
-2. 在 `_unno_profile` 中实现 CTTS 分支（仅前向模型，无导数）
-3. 编写单元测试，与 C 版 `zdipot23.out` / `zdipot25.out` 的合成轮廓对比
-4. 在 `localProfileAndDerivUnno` 中实现 `dI/dCm`、`dV/dCm` 解析导数
-5. 在 `diskIntProfAndDerivUnno` 和 `fighting.py` / `mem/` 中接通响应矩阵扩展
-6. 端到端测试：以 TWA12 数据运行完整反演，与 C 版结果比较
+1. 抽取 `_unno_profile_component()`，保证现有单 UR 路径完全不变。
+2. 为 `lineDataUnno` 加入色球参数和 `ctts_mode='dual_ur'`。
+3. 在前向模型中实现双 UR 组合，但先不接导数。
+4. 用合成数据验证：当 `filling_factor_I_ch=filling_factor_V_ch=0` 时，必须退化回现有 UR。
+5. 在 `localProfileAndDerivUnno` 中接入 `dI/dCq`、`dI/dCm`、`dV/dCq`、`dV/dCm`。
+6. 扩展 `core/fitting.py` / `core/mem/zdi_adapter.py`，把 `Cm` 列块接入响应矩阵。
+7. 同步更新 `config_loader.py`、`config.json`、`frontend/js/config.js`，打通 CLI 与 WebUI 的参数链路。
+8. 若 UI 字段组织发生变化，再同步 `api/routes/config.py` 与 `frontend/index.html` 的缓存版本号。
+9. 加入 `legacy_pi` 对照测试，量化双 UR 相对旧近似的改进。
+10. 如数据确有需求，再进入第二阶段：独立色球磁图。
 
 ---
 
-## 7. 变更文件一览
+## 7. 变更文件一览（最小实现闭环）
 
 | 文件 | 改动类型 | 估计行数 |
 |------|----------|---------|
-| `core/line_models/unno.py` | 扩展（`fac`、CTTS 分支、$\partial/\partial C_m$）| +120 行 |
-| `pipeline/pipeline.py` | 参数透传（`fac`, `Cm_default`）| +4 行 |
-| `config.json` | 新增可选字段 | +3 行 |
-| `core/fitting.py` | 响应矩阵扩展（`Cm` 列块）| +40 行 |
-| `core/mem/*.py` | 图像向量分区扩展（`Cm` 有界熵段）| +30 行 |
-| **合计** | | **约 200 行** |
+| `core/line_models/unno.py` | 双 UR 参数容器、单分量/双分量求解器、导数扩展 | +180 行 |
+| `pipeline/pipeline.py` | 新参数透传 | +15 行 |
+| `config_loader.py` | 新字段解析 | +20 行 |
+| `config.json` | 新增色球 UR 配置字段 | +12 行 |
+| `frontend/js/config.js` | 新配置项渲染、条件显隐与字段分组 | +30 行 |
+| `api/routes/config.py` | 如前后端字段结构不一致时，补充保存/回填映射 | +0~20 行 |
+| `frontend/index.html` | 如修改前端资源，更新缓存版本号 | +1 行 |
+| `core/fitting.py` | 迭代流程中接入双 UR 响应块 | +20 行 |
+| `core/mem/zdi_adapter.py` | `C_m` 图像块、I/V 响应矩阵拼装与熵分段适配 | +30~60 行 |
+| `tests/*` | 退化条件、兼容模式和响应矩阵回归测试 | +40~80 行 |
+| `docs/line_models.md` | 对外说明 Unno 模型已扩展到 CTTS 双 UR | +15 行 |
+| **合计** | | **约 350~440 行** |
 
-`pipeline.py` 以下的所有路由代码（`isinstance` 判断、`getAllProfDiriv*` 等）**均无需修改**。
+与此相比，`line_utils.py` 的运行时类型路由预计无需修改；但这不改变本方案是一个**跨核心层与前端层的联动改动**这一事实。
 
 ---
 
-## 8. 参考文献与代码对应关系
+## 8. 参考文献与变量对应关系
 
-| 符号 | C 变量 | Python 字段/变量 | 参考文献 |
-|------|--------|-----------------|---------|
-| $\eta_0$ | `eta` | `ldata.str` | ME 模型线连比 |
-| $\beta$ | `bb` | `ldata.beta` | Planck 函数坡度 |
-| $\varepsilon$ | `eps` | `ldata.limbDark`（推导）| 热化参数 |
-| $f_\text{fff}$ | `fff`（硬编码）| `ldata.fI` | 填充因子 |
-| $C_m$ | `Cm[i]`（逐格点）| `Cm_map` | 吸积亮度图 |
-| $p_\text{mul}$ | `pmul` | 局部变量 | — |
-| $fac$ | `fac`（`< 0` = CTTS）| `ldata.fac` | — |
-| $C_\text{def}$ | `defC = 0.999` | `_DEFC = 0.999` | 亮度上限 |
+| 物理量 | 旧近似中的角色 | 新双 UR 结构中的角色 |
+|--------|----------------|----------------------|
+| `Cq` | 光球亮度图 | 光球连续谱/吸收权重图 |
+| `Cm` | 经验发射缩放或填充图 | 色球连续谱/发射权重图 |
+| `pmul` | 旧 C 版经验振幅缩放 | 仅保留在 `legacy_pi`，不再是主模型核心 |
+| `fI` | 单一 Stokes I 填充因子 | 拆分为 `filling_factor_I_ph/ch` |
+| `fV` | 单一 Stokes V 填充因子/Zeeman 修正 | 拆分为 `filling_factor_V_ph/ch` |
+| `Bsurf` | 唯一磁场图 | 第一阶段共享于光球和色球 |
+| `kappa_ch` | 无 | 色球磁响应缩放 |
+| `beta` | 单层 ME 坡度 | 拆分为 `beta_ph` 与 `beta_ch` |
 
-**C 版关键文件**（`CTTSzdi2/`）：
+**参考代码与文档**：
 
-- `unno_ctts.c`：`unno()` + `unno_deriv()`（谱线轮廓 + 导数）
-- `potential.c`：主程序，`fitcm` 控制 `Cm` 是否进入图像向量
-- `resp_pot.c`：`doppl_deriv()` + `cp_image()` + `mk_image()`（响应矩阵构建）
-- `mem_nl.c`：`calc_grad()` 中的 `n1..n2` 有界熵段（`Cm` 使用此段）
+- `CTTSzdi2/unno_ctts.c`：旧 CTTS 近似实现，仅用于回归对照
+- `docs/future/chromospheric_zdi.md`：色球 UR 发射线的单分量物理基础
+- `docs/line_models.md`：当前项目中的 Unno-Rachkovsky 框架说明
+
+---
+
+## 9. 结论
+
+这一步的核心不是“在旧 π-only 框架上打补丁”，而是把 CTTS 主模型正式改写为：
+
+**光球磁分量 + 色球磁分量** 的双 Unno-Rachkovsky 结构。
+
+在这个结构下：
+
+1. 色球磁场可以直接贡献自己的 Stokes V；
+2. Stokes I 和 V 的光球/色球比例可以不同；
+3. `Cm` 既影响发射强度，也影响偏振权重；
+4. 当前代码架构仍可在不改变 `lineData` 路由方式的前提下逐步接入；
+5. 真正复杂的“独立色球磁图”被明确推迟到第二阶段，而不是阻塞当前实现。
+
+这使得模型既比旧方案物理上更自洽，也仍然保留一个可控、可实现、可回归验证的开发路径。
