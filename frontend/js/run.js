@@ -135,22 +135,29 @@ async function startRun() {
 
   const forwardOnly = _el('run-forward-only')?.checked ?? false;
   const verbose     = parseInt(_el('run-verbose')?.value ?? '1', 10);
+  const configPath  = window.getSelectedZDIConfigPath?.() || null;
 
   try {
     const resp = await apiFetch('/api/run', {
       method: 'POST',
-      body: { forward_only: forwardOnly, verbose },
+      body: { forward_only: forwardOnly, verbose, config_path: configPath },
     });
 
     if (resp.status === 'busy') {
       setStatus(statusEl, '⚠️ Another run is in progress. Please wait.', 'warn');
       return;
     }
+    if (resp.status === 'error') {
+      setStatus(statusEl, `❌ ${resp.message || 'Run could not start.'}`, 'error');
+      return;
+    }
 
     _isRunning = true;
     _setRunBtnState(true);
     _setBadge('running', 'Running');
-    setStatus(statusEl, 'ZDI pipeline started — streaming log…');
+    setStatus(statusEl, configPath
+      ? `ZDI pipeline started with ${configPath} — streaming log…`
+      : 'ZDI pipeline started — streaming log…');
     _startStream();
   } catch (err) {
     setStatus(statusEl, `❌ Failed to start: ${err.message}`, 'error');

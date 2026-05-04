@@ -189,6 +189,142 @@ const CONFIG_SCHEMA = [
   },
 ];
 
+const CONFIG_LIBRARY_STORAGE_KEY = 'zdipy-selected-config-path';
+let _configLibraryFiles = [];
+let _selectedConfigPath = localStorage.getItem(CONFIG_LIBRARY_STORAGE_KEY) || '';
+
+function _configApiUrl(path = _selectedConfigPath) {
+  if (!path) return '/api/config';
+  return `/api/config?config_path=${encodeURIComponent(path)}`;
+}
+
+function _setSelectedConfigPath(path) {
+  _selectedConfigPath = path || '';
+  if (_selectedConfigPath) {
+    localStorage.setItem(CONFIG_LIBRARY_STORAGE_KEY, _selectedConfigPath);
+  } else {
+    localStorage.removeItem(CONFIG_LIBRARY_STORAGE_KEY);
+  }
+  const hint = document.getElementById('cfg-selected-path');
+  if (hint) hint.textContent = _selectedConfigPath ? `zdi_configs/${_selectedConfigPath}` : 'Using default config.json';
+  document.dispatchEvent(new CustomEvent('zdi-config-selection-changed', {
+    detail: { configPath: _selectedConfigPath || null }
+  }));
+}
+
+function _uniqueSorted(values) {
+  return Array.from(new Set(values.filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b)));
+}
+
+function _fillSelect(select, values, selectedValue) {
+  if (!select) return '';
+  select.innerHTML = '';
+  values.forEach(value => {
+    const opt = document.createElement('option');
+    opt.value = value;
+    opt.textContent = value;
+    select.appendChild(opt);
+  });
+  if (values.includes(selectedValue)) {
+    select.value = selectedValue;
+  } else if (values.length) {
+    select.value = values[0];
+  }
+  select.disabled = values.length === 0;
+  return select.value || '';
+}
+
+function _findSelectedFile() {
+  return _configLibraryFiles.find(f => f.path === _selectedConfigPath) || _configLibraryFiles[0] || null;
+}
+
+function _syncLibrarySelectorsFromFile(file) {
+  const targetSel = document.getElementById('cfg-target-select');
+  const epochSel = document.getElementById('cfg-epoch-select');
+  const dataTypeSel = document.getElementById('cfg-data-type-select');
+  const stokesSel = document.getElementById('cfg-stokes-select');
+  const fileSel = document.getElementById('cfg-file-select');
+
+  const targets = _uniqueSorted(_configLibraryFiles.map(f => f.target));
+  const target = _fillSelect(targetSel, targets, file?.target);
+
+  const byTarget = _configLibraryFiles.filter(f => f.target === target);
+  const epochs = _uniqueSorted(byTarget.map(f => f.epoch));
+  const epoch = _fillSelect(epochSel, epochs, file?.epoch);
+
+  const byEpoch = byTarget.filter(f => f.epoch === epoch);
+  const dataTypes = _uniqueSorted(byEpoch.map(f => f.data_type));
+  const dataType = _fillSelect(dataTypeSel, dataTypes, file?.data_type);
+
+  const byType = byEpoch.filter(f => f.data_type === dataType);
+  const stokesValues = _uniqueSorted(byType.map(f => f.stokes));
+  const stokes = _fillSelect(stokesSel, stokesValues, file?.stokes);
+
+  const matches = byType.filter(f => f.stokes === stokes);
+  if (fileSel) {
+    fileSel.innerHTML = '';
+    matches.forEach(f => {
+      const opt = document.createElement('option');
+      opt.value = f.path;
+      opt.textContent = `${f.name} (${f.n_observations} obs)`;
+      fileSel.appendChild(opt);
+    });
+    const preferred = matches.find(f => f.path === file?.path) || matches[0] || null;
+    fileSel.disabled = matches.length === 0;
+    if (preferred) fileSel.value = preferred.path;
+  }
+}
+
+function _selectFromCurrentControls(ignoreExplicitPath = false) {
+  const target = document.getElementById('cfg-target-select')?.value || '';
+  const epoch = document.getElementById('cfg-epoch-select')?.value || '';
+  const dataType = document.getElementById('cfg-data-type-select')?.value || '';
+  const stokes = document.getElementById('cfg-stokes-select')?.value || '';
+  const explicitPath = ignoreExplicitPath ? '' : (document.getElementById('cfg-file-select')?.value || '');
+  const file = _configLibraryFiles.find(f => f.path === explicitPath)
+    || _configLibraryFiles.find(f => f.target === target && f.epoch === epoch && f.data_type === dataType && f.stokes === stokes)
+    || null;
+  _syncLibrarySelectorsFromFile(file);
+  _setSelectedConfigPath(file?.path || '');
+  return file;
+}
+
+async function loadConfigLibrary() {
+  const statusEl = document.getElementById('cfg-status');
+  try {
+    const library = await apiFetch('/api/config/library');
+    _configLibraryFiles = library.files || [];
+    const file = _findSelectedFile();
+    _syncLibrarySelectorsFromFile(file);
+    _setSelectedConfigPath(file?.path || '');
+    if (_configLibraryFiles.length) {
+      await loadConfig();
+    } else {
+      setStatus(statusEl, 'No files found in zdi_configs/. Using default config.json.', 'warn');
+      await loadConfig();
+    }
+  } catch (err) {
+    setStatus(statusEl, `Error loading config library: ${err.message}`, 'error');
+    await loadConfig();
+  }
+}
+
+function _setupConfigLibrarySelectors() {
+  ['cfg-target-select', 'cfg-epoch-select', 'cfg-data-type-select', 'cfg-stokes-select'].forEach(id => {
+    document.getElementById(id)?.addEventListener('change', () => {
+      _selectFromCurrentControls(true);
+      loadConfig().then(() => _setupHaNumAutoTemplate());
+    });
+  });
+  document.getElementById('cfg-file-select')?.addEventListener('change', () => {
+    _setSelectedConfigPath(document.getElementById('cfg-file-select')?.value || '');
+    loadConfig().then(() => _setupHaNumAutoTemplate());
+  });
+  document.getElementById('cfg-library-refresh-btn')?.addEventListener('click', () => {
+    loadConfigLibrary().then(() => _setupHaNumAutoTemplate());
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Conditional field visibility
 // ---------------------------------------------------------------------------
@@ -450,9 +586,10 @@ function _collect() {
 async function loadConfig() {
   const statusEl = document.getElementById('cfg-status');
   try {
-    const cfg = await apiFetch('/api/config');
+    const cfg = await apiFetch(_configApiUrl());
     _populate(cfg);
-    setStatus(statusEl, 'Config loaded.', 'ok');
+    const suffix = _selectedConfigPath ? ` (${_selectedConfigPath})` : '';
+    setStatus(statusEl, `Config loaded${suffix}.`, 'ok');
     // clear status after 2 s
     setTimeout(() => setStatus(statusEl, ''), 2000);
   } catch (err) {
@@ -465,8 +602,12 @@ async function saveConfig() {
   setStatus(statusEl, 'Saving…');
   try {
     // Read-modify-write: preserve observations.files from server
-    const current = await apiFetch('/api/config');
+    const current = await apiFetch(_configApiUrl());
     const formCfg = _collect();
+
+    if (current.zdi_config_meta) {
+      formCfg.zdi_config_meta = current.zdi_config_meta;
+    }
 
     // Merge observations: keep the server's files array
     formCfg.observations = {
@@ -474,8 +615,8 @@ async function saveConfig() {
       files: (current.observations || {}).files || [],
     };
 
-    await apiFetch('/api/config', { method: 'PUT', body: formCfg });
-    setStatus(statusEl, '✔ Config saved.', 'ok');
+    await apiFetch(_configApiUrl(), { method: 'PUT', body: formCfg });
+    setStatus(statusEl, `✔ Config saved${_selectedConfigPath ? ` to ${_selectedConfigPath}` : ''}.`, 'ok');
     setTimeout(() => setStatus(statusEl, ''), 3000);
   } catch (err) {
     setStatus(statusEl, `❌ ${err.message}`, 'error');
@@ -509,7 +650,8 @@ function _setupHaNumAutoTemplate() {
 
 document.addEventListener('DOMContentLoaded', () => {
   _buildForm();
-  loadConfig().then(() => _setupHaNumAutoTemplate());
+  _setupConfigLibrarySelectors();
+  loadConfigLibrary().then(() => _setupHaNumAutoTemplate());
 
   document.getElementById('cfg-load-btn')?.addEventListener('click', () => {
     loadConfig().then(() => _setupHaNumAutoTemplate());
@@ -520,3 +662,6 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('field-star-vsini_kms-estimate-btn')
     ?.addEventListener('click', _estimateVsini);
 });
+
+window.getSelectedZDIConfigPath = () => _selectedConfigPath || null;
+window.getConfigApiUrl = () => _configApiUrl();

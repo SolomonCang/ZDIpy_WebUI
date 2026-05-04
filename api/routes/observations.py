@@ -13,6 +13,8 @@ _ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
+_APP_ROOT = Path(_ROOT).resolve()
+_REPO_ROOT = _APP_ROOT.parent.parent
 _LSD_DIR = Path(_ROOT) / "LSDprof"
 _ALLOWED_EXTS = {".prof", ".norm", ".lsd", ".txt", ".dat"}
 _SAFE_FNAME = re.compile(r"^[\w\-. ]+$")  # alphanums + _ - . space only
@@ -32,7 +34,8 @@ def _validate_fname(raw: str) -> str:
     if ext not in _ALLOWED_EXTS:
         raise HTTPException(
             status_code=400,
-            detail=f"Extension {ext!r} not allowed. Allowed: {sorted(_ALLOWED_EXTS)}",
+            detail=
+            f"Extension {ext!r} not allowed. Allowed: {sorted(_ALLOWED_EXTS)}",
         )
     # Path traversal guard
     dest = (_LSD_DIR / basename).resolve()
@@ -90,19 +93,20 @@ class PathStatus(BaseModel):
 def validate_observation_paths(
         body: ValidatePathsRequest) -> Dict[str, PathStatus]:
     """Check which observation file paths exist and detect Stokes columns."""
-    root = Path(_ROOT).resolve()
     results: Dict[str, PathStatus] = {}
     for p in body.paths:
         if not p:
             results[p] = PathStatus(exists=False, stokes="unknown")
             continue
         try:
-            target = (root / p).resolve()
+            raw = Path(p)
+            target = raw.resolve() if raw.is_absolute() else (_APP_ROOT /
+                                                              raw).resolve()
         except Exception:
             results[p] = PathStatus(exists=False, stokes="unknown")
             continue
-        # Path traversal guard
-        if not str(target).startswith(str(root)):
+        # Path traversal guard: allow app-local files and generated repo results.
+        if not str(target).startswith(str(_REPO_ROOT)):
             results[p] = PathStatus(exists=False, stokes="unknown")
             continue
         if not target.is_file():
