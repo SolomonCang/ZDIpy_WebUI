@@ -240,7 +240,7 @@ async function loadObsEditor() {
   if (!tbody) return;
 
   try {
-    const cfg = await apiFetch(window.getConfigApiUrl?.() || '/api/config');
+    const cfg = await apiFetch('/api/config');
     const obs = cfg.observations || {};
     const bri = cfg.brightness || {};
     const ev = bri.epoch_variation || {};
@@ -368,7 +368,7 @@ async function saveObservations() {
 
   try {
     setStatus(statusEl, 'Saving…');
-    const cfg = await apiFetch(window.getConfigApiUrl?.() || '/api/config');
+    const cfg = await apiFetch('/api/config');
     cfg.observations = {
       ...(cfg.observations || {}),
       jdate_ref: parseFloat(jdateEl?.value ?? cfg.observations?.jdate_ref ?? 0),
@@ -377,7 +377,7 @@ async function saveObservations() {
     cfg.brightness = cfg.brightness || {};
     cfg.brightness.epoch_variation = cfg.brightness.epoch_variation || {};
     cfg.brightness.epoch_variation.dphi = dphi;
-    await apiFetch(window.getConfigApiUrl?.() || '/api/config', { method: 'PUT', body: cfg });
+    await apiFetch('/api/config', { method: 'PUT', body: cfg });
     setStatus(statusEl, `✔ Saved ${files.length} observation(s).`, 'ok');
     if (files.length) validateObsFiles();
   } catch (err) {
@@ -418,8 +418,4 @@ document.addEventListener('DOMContentLoaded', () => {
 
   document.getElementById('obs-validate-btn')?.addEventListener('click', validateObsFiles);
   document.getElementById('obs-save-btn')?.addEventListener('click', saveObservations);
-
-  document.addEventListener('zdi-config-selection-changed', () => {
-    loadObsEditor();
-  });
 });

@@ -12,7 +12,6 @@ from typing import AsyncGenerator
 
 class _StateLogHandler(logging.Handler):
     """Append zdipy log records to the shared run state (SSE stream)."""
-
     def emit(self, record: logging.LogRecord) -> None:
         from api.state import append_log  # deferred to avoid circular import
         append_log(self.format(record))
@@ -33,10 +32,6 @@ _ROOT = str(Path(__file__).resolve().parent.parent.parent)
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-_APP_ROOT = Path(_ROOT).resolve()
-_REPO_ROOT = _APP_ROOT.parent.parent
-_CONFIG_LIBRARY = _REPO_ROOT / "zdi_configs"
-
 router = APIRouter(tags=["run"])
 
 # Prevents concurrent ZDI runs.  Acquired in start_run(), released in _run_thread().
@@ -45,26 +40,10 @@ _run_lock = threading.Lock()
 _stop_event = threading.Event()
 
 
-def _resolve_run_config_path(config_path: str | None) -> str:
-    if not config_path:
-        return str(_APP_ROOT / "config.json")
-    rel = Path(config_path.strip())
-    if rel.is_absolute():
-        return str(rel)
-    parts = rel.parts
-    if parts and parts[0] == "zdi_configs":
-        rel = Path(*parts[1:])
-    target = (_CONFIG_LIBRARY / rel).resolve()
-    if not str(target).startswith(str(_CONFIG_LIBRARY.resolve())):
-        raise ValueError("config_path escapes zdi_configs")
-    return str(target)
-
-
 # ---------------------------------------------------------------------------
 # Background run thread
 # ---------------------------------------------------------------------------
 def _run_thread(config_path: str, forward_only: bool, verbose: int) -> None:
-
     def _callback(msg: str) -> None:
         append_log(msg)
 
@@ -136,11 +115,7 @@ def start_run(req: RunRequest) -> dict:
             "message": "Another run is already in progress."
         }
 
-    try:
-        config_path = _resolve_run_config_path(req.config_path)
-    except ValueError as exc:
-        _run_lock.release()
-        return {"status": "error", "message": str(exc)}
+    config_path = req.config_path or str(Path(_ROOT) / "config.json")
     update_state(status="running",
                  log_lines=[],
                  result=None,
@@ -172,7 +147,6 @@ def get_status() -> RunStatus:
 @router.get("/run/stream")
 async def stream_log() -> StreamingResponse:
     """Server-Sent Events endpoint: streams log lines in real time."""
-
     async def _generator() -> AsyncGenerator[str, None]:
         from api.state import get_state  # noqa: PLC0415
         sent = 0
